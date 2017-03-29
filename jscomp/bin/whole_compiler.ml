@@ -58824,6 +58824,669 @@ let from_string s : t =
   else Ffi_normal    
 
 end
+module Hash_set_gen
+= struct
+#1 "hash_set_gen.ml"
+(* Copyright (C) 2015-2016 Bloomberg Finance L.P.
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * In addition to the permissions granted to you by the LGPL, you may combine
+ * or link a "work that uses the Library" with a publicly distributed version
+ * of this file to produce a combined library or application, then distribute
+ * that combined work under the terms of your choosing, with no requirement
+ * to comply with the obligations normally placed on you by section 4 of the
+ * LGPL version 3 (or the corresponding section of a later version of the LGPL
+ * should you choose to use a later version).
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. *)
+
+
+(* We do dynamic hashing, and resize the table and rehash the elements
+   when buckets become too long. *)
+
+type 'a t =
+  { mutable size: int;                        (* number of entries *)
+    mutable data: 'a list array;  (* the buckets *)
+    initial_size: int;                        (* initial array size *)
+  }
+
+
+
+
+let create  initial_size =
+  let s = Ext_util.power_2_above 16 initial_size in
+  { initial_size = s; size = 0; data = Array.make s [] }
+
+let clear h =
+  h.size <- 0;
+  let len = Array.length h.data in
+  for i = 0 to len - 1 do
+    Array.unsafe_set h.data i  []
+  done
+
+let reset h =
+  h.size <- 0;
+  h.data <- Array.make h.initial_size [ ]
+
+
+let copy h = { h with data = Array.copy h.data }
+
+let length h = h.size
+
+let iter f h =
+  let rec do_bucket = function
+    | [ ] ->
+      ()
+    | k ::  rest ->
+      f k ; do_bucket rest in
+  let d = h.data in
+  for i = 0 to Array.length d - 1 do
+    do_bucket (Array.unsafe_get d i)
+  done
+
+let fold f h init =
+  let rec do_bucket b accu =
+    match b with
+      [ ] ->
+      accu
+    | k ::  rest ->
+      do_bucket rest (f k  accu) in
+  let d = h.data in
+  let accu = ref init in
+  for i = 0 to Array.length d - 1 do
+    accu := do_bucket (Array.unsafe_get d i) !accu
+  done;
+  !accu
+
+let resize indexfun h =
+  let odata = h.data in
+  let osize = Array.length odata in
+  let nsize = osize * 2 in
+  if nsize < Sys.max_array_length then begin
+    let ndata = Array.make nsize [ ] in
+    h.data <- ndata;          (* so that indexfun sees the new bucket count *)
+    let rec insert_bucket = function
+        [ ] -> ()
+      | key :: rest ->
+        let nidx = indexfun h key in
+        ndata.(nidx) <- key :: ndata.(nidx);
+        insert_bucket rest
+    in
+    for i = 0 to osize - 1 do
+      insert_bucket (Array.unsafe_get odata i)
+    done
+  end
+
+let elements set = 
+  fold  (fun k  acc ->  k :: acc) set []
+
+
+
+
+let stats h =
+  let mbl =
+    Array.fold_left (fun m b -> max m (List.length b)) 0 h.data in
+  let histo = Array.make (mbl + 1) 0 in
+  Array.iter
+    (fun b ->
+       let l = List.length b in
+       histo.(l) <- histo.(l) + 1)
+    h.data;
+  {Hashtbl.num_bindings = h.size;
+   num_buckets = Array.length h.data;
+   max_bucket_length = mbl;
+   bucket_histogram = histo }
+
+let rec small_bucket_mem eq_key key lst =
+  match lst with 
+  | [] -> false 
+  | key1::rest -> 
+    eq_key key   key1 ||
+    match rest with 
+    | [] -> false 
+    | key2 :: rest -> 
+      eq_key key   key2 ||
+      match rest with 
+      | [] -> false 
+      | key3 :: rest -> 
+        eq_key key   key3 ||
+        small_bucket_mem eq_key key rest 
+
+let rec remove_bucket eq_key key (h : _ t) buckets = 
+  match buckets with 
+  | [ ] ->
+    [ ]
+  | k :: next ->
+    if  eq_key k   key
+    then begin h.size <- h.size - 1; next end
+    else k :: remove_bucket eq_key key h next    
+
+module type S =
+sig
+  type key
+  type t
+  val create: int ->  t
+  val clear : t -> unit
+  val reset : t -> unit
+  val copy: t -> t
+  val remove:  t -> key -> unit
+  val add :  t -> key -> unit
+  val of_array : key array -> t 
+  val check_add : t -> key -> bool
+  val mem :  t -> key -> bool
+  val iter: (key -> unit) ->  t -> unit
+  val fold: (key -> 'b -> 'b) ->  t -> 'b -> 'b
+  val length:  t -> int
+  val stats:  t -> Hashtbl.statistics
+  val elements : t -> key list 
+end
+
+end
+module String_hash_set : sig 
+#1 "string_hash_set.mli"
+(* Copyright (C) 2015-2016 Bloomberg Finance L.P.
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * In addition to the permissions granted to you by the LGPL, you may combine
+ * or link a "work that uses the Library" with a publicly distributed version
+ * of this file to produce a combined library or application, then distribute
+ * that combined work under the terms of your choosing, with no requirement
+ * to comply with the obligations normally placed on you by section 4 of the
+ * LGPL version 3 (or the corresponding section of a later version of the LGPL
+ * should you choose to use a later version).
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. *)
+
+
+include Hash_set_gen.S with type key = string
+
+end = struct
+#1 "string_hash_set.ml"
+# 1 "ext/hash_set.cppo.ml"
+(* Copyright (C) 2015-2016 Bloomberg Finance L.P.
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * In addition to the permissions granted to you by the LGPL, you may combine
+ * or link a "work that uses the Library" with a publicly distributed version
+ * of this file to produce a combined library or application, then distribute
+ * that combined work under the terms of your choosing, with no requirement
+ * to comply with the obligations normally placed on you by section 4 of the
+ * LGPL version 3 (or the corresponding section of a later version of the LGPL
+ * should you choose to use a later version).
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. *)
+# 31
+type key = string 
+let key_index (h :  _ Hash_set_gen.t ) (key : key) =
+  (Bs_hash_stubs.hash_string  key) land (Array.length h.data - 1)
+let eq_key = Ext_string.equal 
+type  t = key  Hash_set_gen.t 
+
+
+# 62
+let create = Hash_set_gen.create
+let clear = Hash_set_gen.clear
+let reset = Hash_set_gen.reset
+let copy = Hash_set_gen.copy
+let iter = Hash_set_gen.iter
+let fold = Hash_set_gen.fold
+let length = Hash_set_gen.length
+let stats = Hash_set_gen.stats
+let elements = Hash_set_gen.elements
+
+
+
+let remove (h : _ Hash_set_gen.t) key =  
+  let i = key_index h key in
+  let h_data = h.data in
+  let old_h_size = h.size in 
+  let new_bucket = Hash_set_gen.remove_bucket eq_key key h (Array.unsafe_get h_data i) in
+  if old_h_size <> h.size then  
+    Array.unsafe_set h_data i new_bucket
+
+
+
+let add (h : _ Hash_set_gen.t) key =
+  let i = key_index h key  in 
+  let h_data = h.data in 
+  let old_bucket = (Array.unsafe_get h_data i) in
+  if not (Hash_set_gen.small_bucket_mem eq_key key old_bucket) then 
+    begin 
+      Array.unsafe_set h_data i (key :: old_bucket);
+      h.size <- h.size + 1 ;
+      if h.size > Array.length h_data lsl 1 then Hash_set_gen.resize key_index h
+    end
+
+let of_array arr = 
+  let len = Array.length arr in 
+  let tbl = create len in 
+  for i = 0 to len - 1  do
+    add tbl (Array.unsafe_get arr i);
+  done ;
+  tbl 
+  
+    
+let check_add (h : _ Hash_set_gen.t) key =
+  let i = key_index h key  in 
+  let h_data = h.data in  
+  let old_bucket = (Array.unsafe_get h_data i) in
+  if not (Hash_set_gen.small_bucket_mem eq_key key old_bucket) then 
+    begin 
+      Array.unsafe_set h_data i  (key :: old_bucket);
+      h.size <- h.size + 1 ;
+      if h.size > Array.length h_data lsl 1 then Hash_set_gen.resize key_index h;
+      true 
+    end
+  else false 
+
+
+let mem (h :  _ Hash_set_gen.t) key =
+  Hash_set_gen.small_bucket_mem eq_key key (Array.unsafe_get h.data (key_index h key)) 
+
+  
+
+end
+module Ext_ident : sig 
+#1 "ext_ident.mli"
+(* Copyright (C) 2015-2016 Bloomberg Finance L.P.
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * In addition to the permissions granted to you by the LGPL, you may combine
+ * or link a "work that uses the Library" with a publicly distributed version
+ * of this file to produce a combined library or application, then distribute
+ * that combined work under the terms of your choosing, with no requirement
+ * to comply with the obligations normally placed on you by section 4 of the
+ * LGPL version 3 (or the corresponding section of a later version of the LGPL
+ * should you choose to use a later version).
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. *)
+
+
+
+
+
+
+
+
+(** A wrapper around [Ident] module in compiler-libs*)
+
+val is_js : Ident.t -> bool
+
+val is_js_object : Ident.t -> bool
+
+(** create identifiers for predefined [js] global variables *)
+val create_js : string -> Ident.t
+
+val create : string -> Ident.t
+
+val create_js_module : string -> Ident.t 
+
+val make_js_object : Ident.t -> unit
+
+val reset : unit -> unit
+
+val gen_js :  ?name:string -> unit -> Ident.t
+
+val make_unused : unit -> Ident.t
+
+val is_unused_ident : Ident.t -> bool 
+
+(**
+   if name is not converted, the reference should be equal
+*)
+val convert : bool -> string -> string
+val property_no_need_convert : string -> bool 
+
+val undefined : Ident.t 
+val is_js_or_global : Ident.t -> bool
+val nil : Ident.t
+
+
+val compare : Ident.t -> Ident.t -> int
+val equal : Ident.t -> Ident.t -> bool 
+
+end = struct
+#1 "ext_ident.ml"
+(* Copyright (C) 2015-2016 Bloomberg Finance L.P.
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * In addition to the permissions granted to you by the LGPL, you may combine
+ * or link a "work that uses the Library" with a publicly distributed version
+ * of this file to produce a combined library or application, then distribute
+ * that combined work under the terms of your choosing, with no requirement
+ * to comply with the obligations normally placed on you by section 4 of the
+ * LGPL version 3 (or the corresponding section of a later version of the LGPL
+ * should you choose to use a later version).
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. *)
+
+
+
+
+
+
+
+
+let js_flag = 0b1000 (* check with ocaml compiler *)
+
+let js_module_flag = 0b1_0000 (* javascript external modules *)
+(* TODO:
+    check name conflicts with javascript conventions
+    {[
+    Ext_ident.convert "^";;
+    - : string = "$caret"
+    ]}
+ *)
+let js_object_flag = 0b10_0000 (* javascript object flags *)
+
+let is_js (i : Ident.t) = 
+  i.flags land js_flag <> 0 
+
+let is_js_or_global (i : Ident.t) = 
+  i.flags land (8 lor 1) <> 0 
+
+let is_js_module (i : Ident.t) =
+  i.flags land js_module_flag <> 0 
+
+let is_js_object (i : Ident.t) = 
+  i.flags land js_object_flag <> 0 
+
+let make_js_object (i : Ident.t) = 
+  i.flags <- i.flags lor js_object_flag 
+      
+(* It's a js function hard coded by js api, so when printing,
+   it should preserve the name 
+ *)
+let create_js (name : string) : Ident.t  = 
+  { name = name; flags = js_flag ; stamp = 0}
+
+let js_module_table : Ident.t String_hashtbl.t = String_hashtbl.create 31 
+
+(* This is for a js exeternal module, we can change it when printing
+   for example
+   {[
+   var React$1 = require('react');
+   React$1.render(..)
+   ]}
+
+   Given a name, if duplicated, they should  have the same id
+ *)
+let create_js_module (name : string) : Ident.t = 
+  let name = 
+    String.concat "" @@ List.map (String.capitalize ) @@ 
+    Ext_string.split name '-' in
+  (* TODO: if we do such transformation, we should avoid 
+      collision for example:
+      react-dom 
+      react--dom
+      check collision later
+   *)
+  match String_hashtbl.find_exn js_module_table name  with 
+  | exception Not_found -> 
+      let v = Ident.create name in
+      let ans = { v with flags = js_module_flag} in 
+      String_hashtbl.add js_module_table name ans;
+      ans
+  | v -> v 
+
+let create = Ident.create
+
+let gen_js ?(name="$js") () = create name 
+
+let reserved_words = 
+  [|
+    (* keywork *)
+    "break";
+    "case"; "catch"; "continue";
+    "debugger";"default";"delete";"do";
+    "else";
+    "finally";"for";"function";
+    "if"; "then"; "in";"instanceof";
+    "new";
+    "return";
+    "switch";
+    "this"; "throw"; "try"; "typeof";
+    "var"; "void"; "while"; "with";
+
+    (* reserved in ECMAScript 5 *)
+    "class"; "enum"; "export"; "extends"; "import"; "super";
+
+    "implements";"interface";
+    "let";
+    "package";"private";"protected";"public";
+    "static";
+    "yield";
+
+    (* other *)
+    "null";
+    "true";
+    "false";
+    "NaN";
+
+
+    "undefined";
+    "this";
+
+    (* also reserved in ECMAScript 3 *)
+    "abstract"; "boolean"; "byte"; "char"; "const"; "double";
+    "final"; "float"; "goto"; "int"; "long"; "native"; "short";
+    "synchronized"; 
+    (* "throws";  *)
+    (* seems to be fine, like nodejs [assert.throws] *)
+    "transient"; "volatile";
+
+    (* also reserved in ECMAScript 6 *)
+    "await";
+   
+   "event";
+   "location";
+   "window";
+   "document";
+   "eval";
+   "navigator";
+   (* "self"; *)
+   
+   "Array";
+   "Date";
+   "Math";
+   "JSON";
+   "Object";
+   "RegExp";
+   "String";
+   "Boolean";
+   "Number";
+
+   "Map"; (* es6*)
+   "Set";
+
+   "Infinity";
+   "isFinite";
+   
+   "ActiveXObject";
+   "XMLHttpRequest";
+   "XDomainRequest";
+   
+   "DOMException";
+   "Error";
+   "SyntaxError";
+   "arguments";
+   
+   "decodeURI";
+   "decodeURIComponent";
+   "encodeURI";
+   "encodeURIComponent";
+   "escape";
+   "unescape";
+
+   "isNaN";
+   "parseFloat";
+   "parseInt";
+   
+   (** reserved for commonjs and NodeJS globals*)   
+   "require";
+   "exports";
+   "module";
+    "clearImmediate";
+    "clearInterval";
+    "clearTimeout";
+    "console";
+    "global";
+    "process";
+    "require";
+    "setImmediate";
+    "setInterval";
+    "setTimeout";
+    "__dirname";
+    "__filename"
+  |]
+
+let reserved_map = 
+  let len = Array.length reserved_words in 
+  let set =  String_hash_set.create 1024 in (* large hash set for perfect hashing *)
+  for i = 0 to len - 1 do 
+    String_hash_set.add set reserved_words.(i);
+  done ;
+  set 
+
+
+
+
+
+(* TODO:
+    check name conflicts with javascript conventions
+    {[
+    Ext_ident.convert "^";;
+    - : string = "$caret"
+    ]}
+ *)
+let convert keyword (name : string) = 
+   if keyword && String_hash_set.mem reserved_map name  then "$$" ^ name 
+   else 
+     let module E = struct exception Not_normal_letter of int end in
+     let len = String.length name  in
+     try
+       for i  = 0 to len - 1 do 
+         match String.unsafe_get name i with 
+         | 'a' .. 'z' | 'A' .. 'Z'
+         | '0' .. '9' | '_' | '$' -> ()
+         | _ -> raise (E.Not_normal_letter i)
+       done;
+       name
+     with E.Not_normal_letter i ->
+       String.sub name 0 i ^ 
+       (let buffer = Buffer.create len in 
+        for j = i to  len - 1 do 
+          let c = String.unsafe_get name j in
+          match c with 
+          | '*' -> Buffer.add_string buffer "$star"
+          | '\'' -> Buffer.add_string buffer "$prime"
+          | '!' -> Buffer.add_string buffer "$bang"
+          | '>' -> Buffer.add_string buffer "$great"
+          | '<' -> Buffer.add_string buffer "$less"
+          | '=' -> Buffer.add_string buffer "$eq"
+          | '+' -> Buffer.add_string buffer "$plus"
+          | '-' -> Buffer.add_string buffer "$neg"
+          | '@' -> Buffer.add_string buffer "$at"
+          | '^' -> Buffer.add_string buffer "$caret"
+          | '/' -> Buffer.add_string buffer "$slash"
+          | '|' -> Buffer.add_string buffer "$pipe"
+          | '.' -> Buffer.add_string buffer "$dot"
+          | '%' -> Buffer.add_string buffer "$percent"
+          | '~' -> Buffer.add_string buffer "$tilde"
+          | '#' -> Buffer.add_string buffer "$hash"
+          | 'a'..'z' | 'A'..'Z'| '_'|'$' |'0'..'9'-> Buffer.add_char buffer  c
+          | _ -> Buffer.add_string buffer "$unknown"
+        done; Buffer.contents buffer)
+
+let property_no_need_convert s = 
+  s == convert false s 
+
+(* It is currently made a persistent ident to avoid fresh ids 
+    which would result in different signature files
+    - other solution: use lazy values
+*)
+let make_unused () = create "_"
+
+let is_unused_ident i = Ident.name i = "_"
+
+let reset () = 
+  String_hashtbl.clear js_module_table
+
+
+let undefined = create_js "undefined"
+let nil = create_js "null"
+
+(* Has to be total order, [x < y] 
+   and [x > y] should be consistent
+   flags are not relevant here 
+ *)
+let compare (x : Ident.t ) ( y : Ident.t) = 
+  let u = x.stamp - y.stamp in
+  if u = 0 then 
+     Ext_string.compare x.name y.name 
+  else u 
+
+let equal ( x : Ident.t) ( y : Ident.t) = 
+  if x.stamp <> 0 then x.stamp = y.stamp
+  else y.stamp = 0 && x.name = y.name
+   
+
+end
 module Ext_array : sig 
 #1 "ext_array.mli"
 (* Copyright (C) 2015-2016 Bloomberg Finance L.P.
@@ -60422,669 +61085,6 @@ let graph_check v =
   let v = graph v in 
   Int_vec_vec.length v, 
   Int_vec_vec.fold_left (fun acc x -> Int_vec.length x :: acc ) [] v  
-
-end
-module Hash_set_gen
-= struct
-#1 "hash_set_gen.ml"
-(* Copyright (C) 2015-2016 Bloomberg Finance L.P.
- * 
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * In addition to the permissions granted to you by the LGPL, you may combine
- * or link a "work that uses the Library" with a publicly distributed version
- * of this file to produce a combined library or application, then distribute
- * that combined work under the terms of your choosing, with no requirement
- * to comply with the obligations normally placed on you by section 4 of the
- * LGPL version 3 (or the corresponding section of a later version of the LGPL
- * should you choose to use a later version).
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- * 
- * You should have received a copy of the GNU Lesser General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. *)
-
-
-(* We do dynamic hashing, and resize the table and rehash the elements
-   when buckets become too long. *)
-
-type 'a t =
-  { mutable size: int;                        (* number of entries *)
-    mutable data: 'a list array;  (* the buckets *)
-    initial_size: int;                        (* initial array size *)
-  }
-
-
-
-
-let create  initial_size =
-  let s = Ext_util.power_2_above 16 initial_size in
-  { initial_size = s; size = 0; data = Array.make s [] }
-
-let clear h =
-  h.size <- 0;
-  let len = Array.length h.data in
-  for i = 0 to len - 1 do
-    Array.unsafe_set h.data i  []
-  done
-
-let reset h =
-  h.size <- 0;
-  h.data <- Array.make h.initial_size [ ]
-
-
-let copy h = { h with data = Array.copy h.data }
-
-let length h = h.size
-
-let iter f h =
-  let rec do_bucket = function
-    | [ ] ->
-      ()
-    | k ::  rest ->
-      f k ; do_bucket rest in
-  let d = h.data in
-  for i = 0 to Array.length d - 1 do
-    do_bucket (Array.unsafe_get d i)
-  done
-
-let fold f h init =
-  let rec do_bucket b accu =
-    match b with
-      [ ] ->
-      accu
-    | k ::  rest ->
-      do_bucket rest (f k  accu) in
-  let d = h.data in
-  let accu = ref init in
-  for i = 0 to Array.length d - 1 do
-    accu := do_bucket (Array.unsafe_get d i) !accu
-  done;
-  !accu
-
-let resize indexfun h =
-  let odata = h.data in
-  let osize = Array.length odata in
-  let nsize = osize * 2 in
-  if nsize < Sys.max_array_length then begin
-    let ndata = Array.make nsize [ ] in
-    h.data <- ndata;          (* so that indexfun sees the new bucket count *)
-    let rec insert_bucket = function
-        [ ] -> ()
-      | key :: rest ->
-        let nidx = indexfun h key in
-        ndata.(nidx) <- key :: ndata.(nidx);
-        insert_bucket rest
-    in
-    for i = 0 to osize - 1 do
-      insert_bucket (Array.unsafe_get odata i)
-    done
-  end
-
-let elements set = 
-  fold  (fun k  acc ->  k :: acc) set []
-
-
-
-
-let stats h =
-  let mbl =
-    Array.fold_left (fun m b -> max m (List.length b)) 0 h.data in
-  let histo = Array.make (mbl + 1) 0 in
-  Array.iter
-    (fun b ->
-       let l = List.length b in
-       histo.(l) <- histo.(l) + 1)
-    h.data;
-  {Hashtbl.num_bindings = h.size;
-   num_buckets = Array.length h.data;
-   max_bucket_length = mbl;
-   bucket_histogram = histo }
-
-let rec small_bucket_mem eq_key key lst =
-  match lst with 
-  | [] -> false 
-  | key1::rest -> 
-    eq_key key   key1 ||
-    match rest with 
-    | [] -> false 
-    | key2 :: rest -> 
-      eq_key key   key2 ||
-      match rest with 
-      | [] -> false 
-      | key3 :: rest -> 
-        eq_key key   key3 ||
-        small_bucket_mem eq_key key rest 
-
-let rec remove_bucket eq_key key (h : _ t) buckets = 
-  match buckets with 
-  | [ ] ->
-    [ ]
-  | k :: next ->
-    if  eq_key k   key
-    then begin h.size <- h.size - 1; next end
-    else k :: remove_bucket eq_key key h next    
-
-module type S =
-sig
-  type key
-  type t
-  val create: int ->  t
-  val clear : t -> unit
-  val reset : t -> unit
-  val copy: t -> t
-  val remove:  t -> key -> unit
-  val add :  t -> key -> unit
-  val of_array : key array -> t 
-  val check_add : t -> key -> bool
-  val mem :  t -> key -> bool
-  val iter: (key -> unit) ->  t -> unit
-  val fold: (key -> 'b -> 'b) ->  t -> 'b -> 'b
-  val length:  t -> int
-  val stats:  t -> Hashtbl.statistics
-  val elements : t -> key list 
-end
-
-end
-module String_hash_set : sig 
-#1 "string_hash_set.mli"
-(* Copyright (C) 2015-2016 Bloomberg Finance L.P.
- * 
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * In addition to the permissions granted to you by the LGPL, you may combine
- * or link a "work that uses the Library" with a publicly distributed version
- * of this file to produce a combined library or application, then distribute
- * that combined work under the terms of your choosing, with no requirement
- * to comply with the obligations normally placed on you by section 4 of the
- * LGPL version 3 (or the corresponding section of a later version of the LGPL
- * should you choose to use a later version).
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- * 
- * You should have received a copy of the GNU Lesser General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. *)
-
-
-include Hash_set_gen.S with type key = string
-
-end = struct
-#1 "string_hash_set.ml"
-# 1 "ext/hash_set.cppo.ml"
-(* Copyright (C) 2015-2016 Bloomberg Finance L.P.
- * 
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * In addition to the permissions granted to you by the LGPL, you may combine
- * or link a "work that uses the Library" with a publicly distributed version
- * of this file to produce a combined library or application, then distribute
- * that combined work under the terms of your choosing, with no requirement
- * to comply with the obligations normally placed on you by section 4 of the
- * LGPL version 3 (or the corresponding section of a later version of the LGPL
- * should you choose to use a later version).
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- * 
- * You should have received a copy of the GNU Lesser General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. *)
-# 31
-type key = string 
-let key_index (h :  _ Hash_set_gen.t ) (key : key) =
-  (Bs_hash_stubs.hash_string  key) land (Array.length h.data - 1)
-let eq_key = Ext_string.equal 
-type  t = key  Hash_set_gen.t 
-
-
-# 62
-let create = Hash_set_gen.create
-let clear = Hash_set_gen.clear
-let reset = Hash_set_gen.reset
-let copy = Hash_set_gen.copy
-let iter = Hash_set_gen.iter
-let fold = Hash_set_gen.fold
-let length = Hash_set_gen.length
-let stats = Hash_set_gen.stats
-let elements = Hash_set_gen.elements
-
-
-
-let remove (h : _ Hash_set_gen.t) key =  
-  let i = key_index h key in
-  let h_data = h.data in
-  let old_h_size = h.size in 
-  let new_bucket = Hash_set_gen.remove_bucket eq_key key h (Array.unsafe_get h_data i) in
-  if old_h_size <> h.size then  
-    Array.unsafe_set h_data i new_bucket
-
-
-
-let add (h : _ Hash_set_gen.t) key =
-  let i = key_index h key  in 
-  let h_data = h.data in 
-  let old_bucket = (Array.unsafe_get h_data i) in
-  if not (Hash_set_gen.small_bucket_mem eq_key key old_bucket) then 
-    begin 
-      Array.unsafe_set h_data i (key :: old_bucket);
-      h.size <- h.size + 1 ;
-      if h.size > Array.length h_data lsl 1 then Hash_set_gen.resize key_index h
-    end
-
-let of_array arr = 
-  let len = Array.length arr in 
-  let tbl = create len in 
-  for i = 0 to len - 1  do
-    add tbl (Array.unsafe_get arr i);
-  done ;
-  tbl 
-  
-    
-let check_add (h : _ Hash_set_gen.t) key =
-  let i = key_index h key  in 
-  let h_data = h.data in  
-  let old_bucket = (Array.unsafe_get h_data i) in
-  if not (Hash_set_gen.small_bucket_mem eq_key key old_bucket) then 
-    begin 
-      Array.unsafe_set h_data i  (key :: old_bucket);
-      h.size <- h.size + 1 ;
-      if h.size > Array.length h_data lsl 1 then Hash_set_gen.resize key_index h;
-      true 
-    end
-  else false 
-
-
-let mem (h :  _ Hash_set_gen.t) key =
-  Hash_set_gen.small_bucket_mem eq_key key (Array.unsafe_get h.data (key_index h key)) 
-
-  
-
-end
-module Ext_ident : sig 
-#1 "ext_ident.mli"
-(* Copyright (C) 2015-2016 Bloomberg Finance L.P.
- * 
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * In addition to the permissions granted to you by the LGPL, you may combine
- * or link a "work that uses the Library" with a publicly distributed version
- * of this file to produce a combined library or application, then distribute
- * that combined work under the terms of your choosing, with no requirement
- * to comply with the obligations normally placed on you by section 4 of the
- * LGPL version 3 (or the corresponding section of a later version of the LGPL
- * should you choose to use a later version).
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- * 
- * You should have received a copy of the GNU Lesser General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. *)
-
-
-
-
-
-
-
-
-(** A wrapper around [Ident] module in compiler-libs*)
-
-val is_js : Ident.t -> bool
-
-val is_js_object : Ident.t -> bool
-
-(** create identifiers for predefined [js] global variables *)
-val create_js : string -> Ident.t
-
-val create : string -> Ident.t
-
-val create_js_module : string -> Ident.t 
-
-val make_js_object : Ident.t -> unit
-
-val reset : unit -> unit
-
-val gen_js :  ?name:string -> unit -> Ident.t
-
-val make_unused : unit -> Ident.t
-
-val is_unused_ident : Ident.t -> bool 
-
-(**
-   if name is not converted, the reference should be equal
-*)
-val convert : bool -> string -> string
-val property_no_need_convert : string -> bool 
-
-val undefined : Ident.t 
-val is_js_or_global : Ident.t -> bool
-val nil : Ident.t
-
-
-val compare : Ident.t -> Ident.t -> int
-val equal : Ident.t -> Ident.t -> bool 
-
-end = struct
-#1 "ext_ident.ml"
-(* Copyright (C) 2015-2016 Bloomberg Finance L.P.
- * 
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * In addition to the permissions granted to you by the LGPL, you may combine
- * or link a "work that uses the Library" with a publicly distributed version
- * of this file to produce a combined library or application, then distribute
- * that combined work under the terms of your choosing, with no requirement
- * to comply with the obligations normally placed on you by section 4 of the
- * LGPL version 3 (or the corresponding section of a later version of the LGPL
- * should you choose to use a later version).
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- * 
- * You should have received a copy of the GNU Lesser General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. *)
-
-
-
-
-
-
-
-
-let js_flag = 0b1000 (* check with ocaml compiler *)
-
-let js_module_flag = 0b1_0000 (* javascript external modules *)
-(* TODO:
-    check name conflicts with javascript conventions
-    {[
-    Ext_ident.convert "^";;
-    - : string = "$caret"
-    ]}
- *)
-let js_object_flag = 0b10_0000 (* javascript object flags *)
-
-let is_js (i : Ident.t) = 
-  i.flags land js_flag <> 0 
-
-let is_js_or_global (i : Ident.t) = 
-  i.flags land (8 lor 1) <> 0 
-
-let is_js_module (i : Ident.t) =
-  i.flags land js_module_flag <> 0 
-
-let is_js_object (i : Ident.t) = 
-  i.flags land js_object_flag <> 0 
-
-let make_js_object (i : Ident.t) = 
-  i.flags <- i.flags lor js_object_flag 
-      
-(* It's a js function hard coded by js api, so when printing,
-   it should preserve the name 
- *)
-let create_js (name : string) : Ident.t  = 
-  { name = name; flags = js_flag ; stamp = 0}
-
-let js_module_table : Ident.t String_hashtbl.t = String_hashtbl.create 31 
-
-(* This is for a js exeternal module, we can change it when printing
-   for example
-   {[
-   var React$1 = require('react');
-   React$1.render(..)
-   ]}
-
-   Given a name, if duplicated, they should  have the same id
- *)
-let create_js_module (name : string) : Ident.t = 
-  let name = 
-    String.concat "" @@ List.map (String.capitalize ) @@ 
-    Ext_string.split name '-' in
-  (* TODO: if we do such transformation, we should avoid 
-      collision for example:
-      react-dom 
-      react--dom
-      check collision later
-   *)
-  match String_hashtbl.find_exn js_module_table name  with 
-  | exception Not_found -> 
-      let v = Ident.create name in
-      let ans = { v with flags = js_module_flag} in 
-      String_hashtbl.add js_module_table name ans;
-      ans
-  | v -> v 
-
-let create = Ident.create
-
-let gen_js ?(name="$js") () = create name 
-
-let reserved_words = 
-  [|
-    (* keywork *)
-    "break";
-    "case"; "catch"; "continue";
-    "debugger";"default";"delete";"do";
-    "else";
-    "finally";"for";"function";
-    "if"; "then"; "in";"instanceof";
-    "new";
-    "return";
-    "switch";
-    "this"; "throw"; "try"; "typeof";
-    "var"; "void"; "while"; "with";
-
-    (* reserved in ECMAScript 5 *)
-    "class"; "enum"; "export"; "extends"; "import"; "super";
-
-    "implements";"interface";
-    "let";
-    "package";"private";"protected";"public";
-    "static";
-    "yield";
-
-    (* other *)
-    "null";
-    "true";
-    "false";
-    "NaN";
-
-
-    "undefined";
-    "this";
-
-    (* also reserved in ECMAScript 3 *)
-    "abstract"; "boolean"; "byte"; "char"; "const"; "double";
-    "final"; "float"; "goto"; "int"; "long"; "native"; "short";
-    "synchronized"; 
-    (* "throws";  *)
-    (* seems to be fine, like nodejs [assert.throws] *)
-    "transient"; "volatile";
-
-    (* also reserved in ECMAScript 6 *)
-    "await";
-   
-   "event";
-   "location";
-   "window";
-   "document";
-   "eval";
-   "navigator";
-   (* "self"; *)
-   
-   "Array";
-   "Date";
-   "Math";
-   "JSON";
-   "Object";
-   "RegExp";
-   "String";
-   "Boolean";
-   "Number";
-
-   "Map"; (* es6*)
-   "Set";
-
-   "Infinity";
-   "isFinite";
-   
-   "ActiveXObject";
-   "XMLHttpRequest";
-   "XDomainRequest";
-   
-   "DOMException";
-   "Error";
-   "SyntaxError";
-   "arguments";
-   
-   "decodeURI";
-   "decodeURIComponent";
-   "encodeURI";
-   "encodeURIComponent";
-   "escape";
-   "unescape";
-
-   "isNaN";
-   "parseFloat";
-   "parseInt";
-   
-   (** reserved for commonjs and NodeJS globals*)   
-   "require";
-   "exports";
-   "module";
-    "clearImmediate";
-    "clearInterval";
-    "clearTimeout";
-    "console";
-    "global";
-    "process";
-    "require";
-    "setImmediate";
-    "setInterval";
-    "setTimeout";
-    "__dirname";
-    "__filename"
-  |]
-
-let reserved_map = 
-  let len = Array.length reserved_words in 
-  let set =  String_hash_set.create 1024 in (* large hash set for perfect hashing *)
-  for i = 0 to len - 1 do 
-    String_hash_set.add set reserved_words.(i);
-  done ;
-  set 
-
-
-
-
-
-(* TODO:
-    check name conflicts with javascript conventions
-    {[
-    Ext_ident.convert "^";;
-    - : string = "$caret"
-    ]}
- *)
-let convert keyword (name : string) = 
-   if keyword && String_hash_set.mem reserved_map name  then "$$" ^ name 
-   else 
-     let module E = struct exception Not_normal_letter of int end in
-     let len = String.length name  in
-     try
-       for i  = 0 to len - 1 do 
-         match String.unsafe_get name i with 
-         | 'a' .. 'z' | 'A' .. 'Z'
-         | '0' .. '9' | '_' | '$' -> ()
-         | _ -> raise (E.Not_normal_letter i)
-       done;
-       name
-     with E.Not_normal_letter i ->
-       String.sub name 0 i ^ 
-       (let buffer = Buffer.create len in 
-        for j = i to  len - 1 do 
-          let c = String.unsafe_get name j in
-          match c with 
-          | '*' -> Buffer.add_string buffer "$star"
-          | '\'' -> Buffer.add_string buffer "$prime"
-          | '!' -> Buffer.add_string buffer "$bang"
-          | '>' -> Buffer.add_string buffer "$great"
-          | '<' -> Buffer.add_string buffer "$less"
-          | '=' -> Buffer.add_string buffer "$eq"
-          | '+' -> Buffer.add_string buffer "$plus"
-          | '-' -> Buffer.add_string buffer "$neg"
-          | '@' -> Buffer.add_string buffer "$at"
-          | '^' -> Buffer.add_string buffer "$caret"
-          | '/' -> Buffer.add_string buffer "$slash"
-          | '|' -> Buffer.add_string buffer "$pipe"
-          | '.' -> Buffer.add_string buffer "$dot"
-          | '%' -> Buffer.add_string buffer "$percent"
-          | '~' -> Buffer.add_string buffer "$tilde"
-          | '#' -> Buffer.add_string buffer "$hash"
-          | 'a'..'z' | 'A'..'Z'| '_'|'$' |'0'..'9'-> Buffer.add_char buffer  c
-          | _ -> Buffer.add_string buffer "$unknown"
-        done; Buffer.contents buffer)
-
-let property_no_need_convert s = 
-  s == convert false s 
-
-(* It is currently made a persistent ident to avoid fresh ids 
-    which would result in different signature files
-    - other solution: use lazy values
-*)
-let make_unused () = create "_"
-
-let is_unused_ident i = Ident.name i = "_"
-
-let reset () = 
-  String_hashtbl.clear js_module_table
-
-
-let undefined = create_js "undefined"
-let nil = create_js "null"
-
-(* Has to be total order, [x < y] 
-   and [x > y] should be consistent
-   flags are not relevant here 
- *)
-let compare (x : Ident.t ) ( y : Ident.t) = 
-  let u = x.stamp - y.stamp in
-  if u = 0 then 
-     Ext_string.compare x.name y.name 
-  else u 
-
-let equal ( x : Ident.t) ( y : Ident.t) = 
-  if x.stamp <> 0 then x.stamp = y.stamp
-  else y.stamp = 0 && x.name = y.name
-   
 
 end
 module Hash_set_ident_mask : sig 
@@ -65236,7 +65236,7 @@ type primitive =
   | Praw_js_code_exp of string 
   | Praw_js_code_stmt of string 
   
-  | Pjs_fn_make of int 
+  (* | Pjs_fn_make of int  *)
   | Pjs_fn_run of int 
   | Pjs_fn_method of int 
   | Pjs_fn_runmethod of int 
@@ -65587,7 +65587,7 @@ type primitive =
   | Pupdate_mod
   | Praw_js_code_exp of string 
   | Praw_js_code_stmt of string 
-  | Pjs_fn_make of int 
+  (* | Pjs_fn_make of int  *)
   | Pjs_fn_run of int 
   | Pjs_fn_method of int 
   | Pjs_fn_runmethod of int
@@ -66123,7 +66123,8 @@ let free_variables l =
   !fv
 
 
-
+(** [no_bounded_variables l] means no lambda expressions like
+    [let x be e0 in e1]*)
 let rec no_bounded_variables (l : t) =
   begin
     match (l : t) with 
@@ -66304,12 +66305,12 @@ let rec is_eta_conversion_exn
   | x::xs, Lvar y::ys, r::rest 
     when Ident.same x y ->
     r :: is_eta_conversion_exn xs ys rest 
-  | x::xs, 
-    (Lprim ({primitive = Pjs_fn_make _; 
-             args = [Lvar y] } as p ) ::ys),
-    r :: rest when Ident.same x y -> 
-    Lprim ({p with args = [ r]}) :: 
-    is_eta_conversion_exn xs ys rest 
+  (* | x::xs,  *)
+  (*   (Lprim ({primitive = Pjs_fn_make _;  *)
+  (*            args = [Lvar y] } as p ) ::ys), *)
+  (*   r :: rest when Ident.same x y ->  *)
+  (*   Lprim ({p with args = [ r]}) ::  *)
+  (*   is_eta_conversion_exn xs ys rest  *)
   | [], [], [] -> []
   | _, _, _ -> raise_notrace Not_simple_form
 
@@ -66364,6 +66365,7 @@ let apply fn args loc status : t =
       Lapply {fn = new_fn ; args ; loc = loc; status } 
   *)
   (* same as previous App status*)
+
   | _ -> 
     Lapply { fn; args;  loc  ;
              status }
@@ -66474,6 +66476,333 @@ let comparison (cmp : Lambda.comparison) a b : bool =
   | Clt -> a < b 
   | Cge -> a >= b 
 
+
+(** 
+   [transform_under_supply n loc status fn args]
+   n is the number of missing arguments required for [fn].
+   Return a function of airty [n]
+   example:
+   {[
+     let f x y =  x + y ;;
+     (* Invariant: there is no currying 
+        here since f's arity is 2, no side effect *)
+     f 3 ;;
+     function (y) -> f 3 y 
+   ]}
+*) 
+let transform_under_supply n loc status fn args = 
+  let extra_args = Ext_list.init n
+      (fun _ ->   (Ident.create Literals.param)) in
+  let extra_lambdas = List.map (fun x -> var x) extra_args in
+  begin match List.fold_right (fun (lam : t) (acc, bind) ->
+      match lam with
+      | Lvar _
+      | Lconst (Const_int _  
+        | Const_char _ | Const_string _ 
+        | Const_float _ | Const_int32 _ 
+        | Const_int64 _ | Const_nativeint _ 
+        | Const_pointer _ | Const_immstring _ ) 
+      | Lprim {primitive = Pfield _;
+               args =  [ Lglobal_module _ ]; _ }
+      | Lfunction _ 
+        ->
+        (lam :: acc, bind)
+      | _ ->
+        let v = Ident.create Literals.partial_arg in
+        (var v :: acc),  ((v, lam) :: bind)
+    ) (fn::args) ([],[])   with 
+  | fn :: args, [] -> 
+    (* More than no side effect in the [args], 
+       we try to avoid computation, so even if 
+       [x + y] is side effect free, we need eval it only once 
+    *)
+    (* TODO: Note we could adjust [fn] if [fn] is already a function
+       But it is dangerous to change the arity 
+       of an existing function which may cause inconsistency
+    *)
+    function_ ~arity:n ~function_kind:Curried ~params:extra_args
+      ~body:(apply fn (args @ extra_lambdas) 
+               loc 
+               status
+            ) 
+  | fn::args , bindings ->
+
+    let rest : t = 
+      function_ ~arity:n ~function_kind:Curried ~params:extra_args
+        ~body:(apply fn (args @ extra_lambdas) 
+                 loc 
+                 status
+              ) in
+    List.fold_left (fun lam (id,x) ->
+        let_ Strict id x lam
+      ) rest bindings
+  | _, _ -> assert false
+  end
+
+
+
+(* Invariant: mk0 : (unit -> 'a0) -> 'a0 t 
+                TODO: this case should be optimized, 
+                we need check where we handle [arity=0] 
+                as a special case -- 
+                if we do an optimization before compiling
+                into lambda
+
+   {[Fn.mk0]} is not intended for use by normal users
+
+   so we assume [Fn.mk0] is only used in such cases
+   {[
+     Fn.mk0 (fun _ -> .. )
+   ]}
+   when it is passed as a function directly
+*)
+(*TODO: can be optimized ?
+  {[\ x y -> (\u -> body x) x y]}
+  {[\u x -> body x]}        
+    rewrite rules 
+  {[
+    \x -> body 
+          --
+          \y (\x -> body ) y 
+  ]}
+  {[\ x y -> (\a b c -> g a b c) x y]}
+  {[ \a b -> \c -> g a b c ]}
+*)
+(** if arity = 0 then 
+            begin match fn with 
+              | Lfunction {params =  [_]; body}
+                ->
+                compile_lambda cxt 
+                  (function_ 
+                     ~arity:0 
+                     ~kind:Curried
+                     ~params:[]
+                     ~body)
+              | _ -> 
+                let wrapper, new_fn = 
+                  match fn with 
+                  | Lvar _ 
+                  | Lprim {primitive = Pfield _ ; args = [Lglobal_module _]; _} -> 
+                    None, fn 
+                  | _ ->  
+                    let partial_arg = Ext_ident.create Literals.partial_arg in 
+                    Some partial_arg, var partial_arg
+                in 
+                let cont =   
+                  (function_ ~arity:0 
+                     ~kind:Curried ~params:[] 
+                     ~body:(
+                       apply new_fn
+                         [unit]
+                         Location.none App_na
+                     )) in 
+                begin match wrapper with 
+                  | None ->      
+                    compile_lambda cxt  cont
+                  | Some partial_arg
+                    -> 
+                    compile_lambda cxt (let_ Strict partial_arg fn cont )  
+                end
+            end
+          else 
+            begin match fn with
+              | Lfunction{arity = len; kind; params = args; body}
+                ->
+                if len = arity then
+                  compile_lambda cxt fn 
+                else if len > arity then 
+                  let params, rest  = Ext_list.take arity args  in 
+                  compile_lambda cxt 
+                    (function_ 
+                       ~arity
+                       ~kind ~params
+                       ~body:(function_ ~arity:(len - arity)
+                                ~kind ~params:rest ~body)
+                    )
+                else (* len < arity *)
+                  compile_lambda cxt 
+                    transform_under_supply arity 
+                       Location.none App_na
+                       fn  [] )
+              (* let extra_args = Ext_list.init (arity - len) (fun _ ->   (Ident.create Literals.param)) in *)
+              (* let extra_lambdas = List.map (fun x -> Lambda.Lvar x) extra_args in *)
+              (* Lambda.Lfunction (kind, extra_args @ args , body ) *)
+
+                                | _ -> 
+                                compile_lambda cxt 
+                                (transform_under_supply arity
+                                Location.none App_na  fn  [] )
+                                end *)
+
+
+
+(** Unsafe function, we are changing arity here, it should be applied 
+    cautiously, since 
+    [let u = f] and we are chaning the arity of [f] it will affect 
+    the collection of [u]
+*)
+let unsafe_adjust_to_arity loc ~to_:(to_:int) ?from
+    (fn : t) = 
+  begin match from, fn  with 
+    | Some from, _ 
+    | None, Lfunction{arity=from} ->
+      if from = to_ then 
+        fn 
+      else if to_ = 0 then  
+        match fn with 
+        | Lfunction{params = [param]; body} -> 
+          function_ ~arity:0 ~function_kind:Curried 
+            ~params:[]
+            ~body:(
+              let_ Alias param unit body  
+            ) (* could be only introduced by 
+                 {[ Pjs_fn_make 0 ]} <- 
+                 {[ fun [@bs] () -> .. ]}
+              *)
+        | _ -> 
+          let wrapper, new_fn  = 
+            match fn with 
+            | Lvar _ 
+            | Lprim{primitive = Pfield _ ; args = [Lglobal_module _]; _ }
+              -> 
+              None, fn 
+            | _ -> 
+              let partial_arg = Ext_ident.create Literals.partial_arg in 
+              Some partial_arg, var partial_arg in 
+
+          let cont = function_ 
+              ~arity:0
+              ~function_kind:Curried 
+              ~params:[]
+              ~body:(
+                apply new_fn [unit ; unit ] loc App_na
+              ) in 
+
+          match wrapper with 
+          | None -> cont 
+          | Some partial_arg 
+            -> let_ Strict partial_arg fn cont 
+
+      else if to_ > from then 
+        match fn with 
+        | Lfunction{params;body; function_kind} -> 
+          (* {[fun x -> f]} -> 
+             {[ fun x y -> f y ]}
+          *)
+          let extra_args = Ext_list.init (to_ - from) (fun _ -> Ident.create Literals.param) in 
+          function_
+            ~arity:to_ 
+            ~function_kind:Curried
+            ~params:(params @ extra_args )
+            ~body:(apply body (List.map var extra_args) loc App_na)
+        | _ -> 
+          let arity = to_ in 
+          let extra_args = Ext_list.init to_  (fun _ -> Ident.create Literals.param ) in 
+          let wrapper, new_fn = 
+            match fn with 
+            | Lvar _ 
+            | Lprim {primitive = Pfield _ ; args = [ Lglobal_module _] ; _}  -> 
+              None, fn
+            | _ -> 
+              let partial_arg = Ext_ident.create Literals.partial_arg in 
+              Some partial_arg, var partial_arg
+          in   
+          let cont = 
+            function_ 
+              ~arity
+              ~function_kind:Curried
+              ~params:extra_args 
+              ~body:(
+                let first_args, rest_args = Ext_list.take from extra_args in 
+                apply (apply new_fn (List.map var first_args) loc App_ml_full) (List.map var rest_args) loc App_na ) in 
+          begin match wrapper with 
+            | None -> cont 
+            | Some partial_arg -> 
+              let_ Strict partial_arg fn cont 
+          end    
+      else 
+        (* add3  --adjust to arity 1 ->
+           fun x -> (fun y z -> add3 x y z )
+
+           [fun x y z -> f x y z ]
+           [fun x -> [fun y z -> f x y z ]]
+           This is okay if the function is not held by other..
+        *)
+        begin match fn with 
+
+          | Lfunction 
+              {params; body; function_kind } (* TODO check arity = List.length params in debug mode *)
+            -> 
+            let arity = to_ in 
+            let extra_outer_args, extra_inner_args = Ext_list.take arity params in 
+            function_ 
+              ~arity 
+              ~function_kind:Curried
+              ~params:extra_outer_args 
+              ~body:(
+                function_ ~arity:(from - to_)
+                  ~function_kind:Curried ~params:extra_inner_args ~body:body)
+          | _
+            -> 
+            let extra_outer_args = 
+              Ext_list.init to_
+                (fun _ ->   Ident.create Literals.param) in
+            let wrapper, new_fn = 
+              match fn with 
+              | Lvar _ 
+              | Lprim {primitive = Pfield _ ; args = [ Lglobal_module _] ; _}  -> 
+                None, fn
+              | _ -> 
+                let partial_arg = Ext_ident.create Literals.partial_arg in 
+                Some partial_arg, var partial_arg
+            in   
+            let cont = 
+              function_ ~arity:to_ ~function_kind:Curried ~params:extra_outer_args 
+                ~body:(
+                  let arity = from - to_ in 
+                  let extra_inner_args =
+                    Ext_list.init arity (fun _ -> Ident.create Literals.param ) in 
+                  function_ ~arity ~function_kind:Curried ~params:extra_inner_args 
+                    ~body:(apply new_fn 
+                             (Ext_list.map_acc (List.map var extra_inner_args) var extra_outer_args )      
+                             loc App_ml_full)
+                )  in 
+            begin match wrapper with 
+              | None -> cont 
+              | Some partial_arg -> let_ Strict partial_arg fn  cont    
+            end
+        end 
+    | None, _ ->      
+      (** In this case [fn] is not [Lfunction], otherwise we would get [arity] *)
+      if to_ = 0 then 
+        let wrapper, new_fn  = 
+          match fn with 
+          | Lvar _ 
+          | Lprim{primitive = Pfield _ ; args = [Lglobal_module _]; _ }
+            -> 
+            None, fn 
+          | _ -> 
+            let partial_arg = Ext_ident.create Literals.partial_arg in 
+            Some partial_arg, var partial_arg in 
+
+        let cont = function_ 
+            ~arity:0
+            ~function_kind:Curried 
+            ~params:[]
+            ~body:(
+              apply new_fn [unit] loc App_na
+            ) in 
+
+        match wrapper with 
+        | None -> cont 
+        | Some partial_arg 
+          -> let_ Strict partial_arg fn cont 
+      else   
+        transform_under_supply to_ loc App_na fn []
+  end 
+
+
+
 module Lift = struct 
   let int i : t =
     Lconst ((Const_int i))
@@ -66504,7 +66833,15 @@ module Lift = struct
     Lconst ((Const_char b))    
 end
 
-let prim ~primitive:(prim : primitive) ~args:(ll : t list) loc  : t = 
+let prim ~primitive:(prim : primitive) ~args:(ll : t list) loc  : t =
+  (* match prim with  *)
+  (* | Pjs_fn_make arity ->  *)
+  (*   begin match ll with  *)
+  (*   | [fn] *)
+  (*     -> unsafe_adjust_to_arity loc ~to_:arity ?from:None fn *)
+  (*   | _ -> assert false *)
+  (*   end *)
+  (* | _ ->   *)
   let default () : t = Lprim { primitive = prim ;args =  ll ; loc} in 
   match ll with 
   | [Lconst a] -> 
@@ -66700,7 +67037,9 @@ let rec transform_uncurried_arg_type loc (arg_types : Ast_ffi_types.arg_kind lis
     let (o_arg_types, o_args) = 
       transform_uncurried_arg_type loc xs ys in 
     { Ast_ffi_types.arg_type = Nothing ; arg_label } :: o_arg_types , 
-    prim ~primitive:(Pjs_fn_make n) ~args:[y] loc :: o_args 
+    (* prim ~primitive:(Pjs_fn_make n) ~args:[y] loc *)
+    unsafe_adjust_to_arity loc ~to_:n ?from:None y
+    :: o_args 
   |  x  ::xs, y::ys -> 
     begin match x with 
       | {arg_type = Arg_int_lit  _ | Arg_string_lit _ }  -> 
@@ -66986,6 +67325,22 @@ let convert exports lam : _ * _  =
     else if s =  "#debugger"  then 
       (* ATT: Currently, the arity is one due to PPX *)
       prim ~primitive:Pdebugger ~args:[] loc 
+    else if s = "#fn_mk"  then 
+      let arity = (int_of_string p.prim_native_name) in
+      match args with 
+      | [fn] -> 
+        let fn = aux fn in 
+        unsafe_adjust_to_arity loc ~to_:arity ?from:None fn
+      | _ -> assert false
+    else if s = "#fn_run" then 
+      let arity = (int_of_string p.prim_native_name) in
+      let args = List.map aux args in 
+      match args with 
+      | [Lprim {primitive = Pjs_unsafe_downgrade _ ; }; _ ]
+        -> prim ~primitive:(Pjs_fn_run arity) ~args loc
+      | fn :: rest -> 
+        apply fn rest loc App_js_full
+      | [] -> assert false
     else 
       let args = List.map aux args in 
       let primitive = match s with 
@@ -67025,8 +67380,9 @@ let convert exports lam : _ * _  =
         | "#unsafe_neq" -> Pjscomp Cneq
 
         | "#typeof" -> Pjs_typeof
-        | "#fn_run" | "#method_run" -> Pjs_fn_run(int_of_string p.prim_native_name)
-        | "#fn_mk" -> Pjs_fn_make (int_of_string p.prim_native_name)
+        (* | "#fn_run"  *)
+        | "#method_run" -> Pjs_fn_run(int_of_string p.prim_native_name)
+        (* | "#fn_mk" -> Pjs_fn_make (int_of_string p.prim_native_name) *)
         | "#fn_method" -> Pjs_fn_method (int_of_string p.prim_native_name)
         | "#unsafe_downgrade" -> Pjs_unsafe_downgrade (Ext_string.empty,loc)
         | _ -> Location.raise_errorf ~loc
@@ -70724,7 +71080,7 @@ let rec no_side_effects (lam : Lam.t) : bool =
       | Pnull_to_opt       
       | Pundefined_to_opt         
       | Pnull_undefined_to_opt 
-      | Pjs_fn_make _         
+      (* | Pjs_fn_make _          *)
       | Pjs_object_create _
         (** TODO: check *)      
       | Pbytes_to_string 
@@ -71224,7 +71580,7 @@ and eq_primitive ( lhs : Lam.primitive) (rhs : Lam.primitive) =
   | Pbigstring_set_64 b -> (match rhs with Pbigstring_set_64 b1 -> b = b1 | _ -> false )      
   | Pctconst compile_time_constant -> (match rhs with Pctconst compile_time_constant1 -> eq_compile_time_constant compile_time_constant compile_time_constant1 | _ -> false)
   | Pjs_unsafe_downgrade ( s,_loc) -> (match rhs with Pjs_unsafe_downgrade (s1,_) -> s = s1 | _ -> false)  
-  | Pjs_fn_make i -> (match rhs with Pjs_fn_make i1 -> i = i1 | _ -> false)
+  (* | Pjs_fn_make i -> (match rhs with Pjs_fn_make i1 -> i = i1 | _ -> false) *)
   | Pjs_fn_run i -> (match rhs with Pjs_fn_run i1 -> i = i1 | _ -> false)
   | Pjs_fn_method i -> (match rhs with Pjs_fn_method i1 -> i = i1 | _ ->  false )
   | Pjs_fn_runmethod i -> (match rhs with Pjs_fn_runmethod i1 -> i = i1 | _ -> false ) 
@@ -71398,7 +71754,7 @@ let primitive ppf (prim : Lam.primitive) = match prim with
   | Pjs_unsafe_downgrade (s,_loc) -> fprintf ppf "##%s" s 
   | Pjs_function_length -> fprintf ppf "#function_length"
   | Pjs_fn_run i -> fprintf ppf "#fn_run_%i" i 
-  | Pjs_fn_make i -> fprintf ppf "js_fn_make_%i" i
+  (* | Pjs_fn_make i -> fprintf ppf "js_fn_make_%i" i *)
   | Pjs_fn_method i -> fprintf ppf "js_fn_method_%i" i 
   | Pjs_fn_runmethod i -> fprintf ppf "js_fn_runmethod_%i" i 
   | Pdebugger -> fprintf ppf "debugger"
@@ -92497,7 +92853,7 @@ let translate  loc
   | Pjs_unsafe_downgrade _
   | Pdebugger 
   | Pjs_fn_run _ 
-  | Pjs_fn_make _
+  (* | Pjs_fn_make _ *)
 
   | Pjs_fn_runmethod _ 
     -> assert false (* already handled by {!Lam_compile} *)
@@ -93129,410 +93485,6 @@ let translate  loc
     E.dump  Error [ E.str warn]
 
 
-
-end
-module Lam_eta_conversion : sig 
-#1 "lam_eta_conversion.mli"
-(* Copyright (C) 2015-2016 Bloomberg Finance L.P.
- * 
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * In addition to the permissions granted to you by the LGPL, you may combine
- * or link a "work that uses the Library" with a publicly distributed version
- * of this file to produce a combined library or application, then distribute
- * that combined work under the terms of your choosing, with no requirement
- * to comply with the obligations normally placed on you by section 4 of the
- * LGPL version 3 (or the corresponding section of a later version of the LGPL
- * should you choose to use a later version).
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- * 
- * You should have received a copy of the GNU Lesser General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. *)
-
-
-(** 
-  [transform n loc status fn args]
-  n is the number of missing arguments required for [fn].
-  Return a function of airty [n]
-*) 
-
-val transform_under_supply : 
-  int ->
-  Location.t -> Lam.apply_status -> Lam.t -> Lam.t list -> Lam.t
-
-
-val unsafe_adjust_to_arity :
-  Location.t -> 
-  to_:int -> 
-  ?from:int -> 
-  Lam.t -> 
-  Lam.t 
-end = struct
-#1 "lam_eta_conversion.ml"
-(* Copyright (C) 2015-2016 Bloomberg Finance L.P.
- * 
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * In addition to the permissions granted to you by the LGPL, you may combine
- * or link a "work that uses the Library" with a publicly distributed version
- * of this file to produce a combined library or application, then distribute
- * that combined work under the terms of your choosing, with no requirement
- * to comply with the obligations normally placed on you by section 4 of the
- * LGPL version 3 (or the corresponding section of a later version of the LGPL
- * should you choose to use a later version).
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- * 
- * You should have received a copy of the GNU Lesser General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. *)
-
-
-(*
-  let f x y =  x + y 
-  Invariant: there is no currying 
-  here since f's arity is 2, no side effect 
-  f 3 --> function(y) -> f 3 y 
-*)
-
-(** 
-   [transform n loc status fn args]
-   n is the number of missing arguments required for [fn].
-   Return a function of airty [n]
-*) 
-let transform_under_supply n loc status fn args = 
-  let extra_args = Ext_list.init n
-      (fun _ ->   (Ident.create Literals.param)) in
-  let extra_lambdas = List.map (fun x -> Lam.var x) extra_args in
-  begin match List.fold_right (fun (lam : Lam.t) (acc, bind) ->
-      match lam with
-      | Lvar _
-      | Lconst (Const_int _  
-        | Const_char _ | Const_string _ 
-        | Const_float _ | Const_int32 _ 
-        | Const_int64 _ | Const_nativeint _ 
-        | Const_pointer _ | Const_immstring _ ) 
-      | Lprim {primitive = Pfield _;
-               args =  [ Lglobal_module _ ]; _ }
-      | Lfunction _ 
-        ->
-        (lam :: acc, bind)
-      | _ ->
-        let v = Ident.create Literals.partial_arg in
-        (Lam.var v :: acc),  ((v, lam) :: bind)
-    ) (fn::args) ([],[])   with 
-  | fn :: args, [] -> 
-    (* More than no side effect in the [args], 
-       we try to avoid computation, so even if 
-       [x + y] is side effect free, we need eval it only once 
-    *)
-    (* TODO: Note we could adjust [fn] if [fn] is already a function
-       But it is dangerous to change the arity 
-       of an existing function which may cause inconsistency
-    *)
-    Lam.function_ ~arity:n ~function_kind:Curried ~params:extra_args
-      ~body:(Lam.apply fn (args @ extra_lambdas) 
-               loc 
-               status
-            ) 
-  | fn::args , bindings ->
-
-    let rest : Lam.t = 
-      Lam.function_ ~arity:n ~function_kind:Curried ~params:extra_args
-        ~body:(Lam.apply fn (args @ extra_lambdas) 
-                 loc 
-                 status
-              ) in
-    List.fold_left (fun lam (id,x) ->
-        Lam.let_ Strict id x lam
-      ) rest bindings
-  | _, _ -> assert false
-  end
-
-
-
-(* Invariant: mk0 : (unit -> 'a0) -> 'a0 t 
-                TODO: this case should be optimized, 
-                we need check where we handle [arity=0] 
-                as a special case -- 
-                if we do an optimization before compiling
-                into lambda
-
-   {[Fn.mk0]} is not intended for use by normal users
-
-   so we assume [Fn.mk0] is only used in such cases
-   {[
-     Fn.mk0 (fun _ -> .. )
-   ]}
-   when it is passed as a function directly
-*)
-(*TODO: can be optimized ?
-  {[\ x y -> (\u -> body x) x y]}
-  {[\u x -> body x]}        
-    rewrite rules 
-  {[
-    \x -> body 
-          --
-          \y (\x -> body ) y 
-  ]}
-  {[\ x y -> (\a b c -> g a b c) x y]}
-  {[ \a b -> \c -> g a b c ]}
-*)
-(** if arity = 0 then 
-            begin match fn with 
-              | Lfunction {params =  [_]; body}
-                ->
-                compile_lambda cxt 
-                  (Lam.function_ 
-                     ~arity:0 
-                     ~kind:Curried
-                     ~params:[]
-                     ~body)
-              | _ -> 
-                let wrapper, new_fn = 
-                  match fn with 
-                  | Lvar _ 
-                  | Lprim {primitive = Pfield _ ; args = [Lglobal_module _]; _} -> 
-                    None, fn 
-                  | _ ->  
-                    let partial_arg = Ext_ident.create Literals.partial_arg in 
-                    Some partial_arg, Lam.var partial_arg
-                in 
-                let cont =   
-                  (Lam.function_ ~arity:0 
-                     ~kind:Curried ~params:[] 
-                     ~body:(
-                       Lam.apply new_fn
-                         [Lam.unit]
-                         Location.none App_na
-                     )) in 
-                begin match wrapper with 
-                  | None ->      
-                    compile_lambda cxt  cont
-                  | Some partial_arg
-                    -> 
-                    compile_lambda cxt (Lam.let_ Strict partial_arg fn cont )  
-                end
-            end
-          else 
-            begin match fn with
-              | Lam.Lfunction{arity = len; kind; params = args; body}
-                ->
-                if len = arity then
-                  compile_lambda cxt fn 
-                else if len > arity then 
-                  let params, rest  = Ext_list.take arity args  in 
-                  compile_lambda cxt 
-                    (Lam.function_ 
-                       ~arity
-                       ~kind ~params
-                       ~body:(Lam.function_ ~arity:(len - arity)
-                                ~kind ~params:rest ~body)
-                    )
-                else (* len < arity *)
-                  compile_lambda cxt 
-                    (Lam_eta_conversion.transform_under_supply arity 
-                       Location.none App_na
-                       fn  [] )
-              (* let extra_args = Ext_list.init (arity - len) (fun _ ->   (Ident.create Literals.param)) in *)
-              (* let extra_lambdas = List.map (fun x -> Lambda.Lvar x) extra_args in *)
-              (* Lambda.Lfunction (kind, extra_args @ args , body ) *)
-
-                                | _ -> 
-                                compile_lambda cxt 
-                                (Lam_eta_conversion.transform_under_supply arity
-                                Location.none App_na  fn  [] )
-                                end *)
-
-
-(** Unsafe function, we are changing arity here, it should be applied 
-    cautiously, since 
-    [let u = f] and we are chaning the arity of [f] it will affect 
-    the collection of [u]
-*)
-let unsafe_adjust_to_arity loc ~to_:(to_:int) ?from
-    (fn : Lam.t) = 
-  begin match from, fn  with 
-    | Some from, _ 
-    | None, Lfunction{arity=from} ->
-      if from = to_ then 
-        fn 
-      else if to_ = 0 then  
-        match fn with 
-        | Lfunction{params = [param]; body} -> 
-          Lam.function_ ~arity:0 ~function_kind:Curried 
-            ~params:[]
-            ~body:(
-              Lam.let_ Alias param Lam.unit body  
-            ) (* could be only introduced by 
-                 {[ Pjs_fn_make 0 ]} <- 
-                 {[ fun [@bs] () -> .. ]}
-              *)
-        | _ -> 
-          let wrapper, new_fn  = 
-            match fn with 
-            | Lvar _ 
-            | Lprim{primitive = Pfield _ ; args = [Lglobal_module _]; _ }
-              -> 
-              None, fn 
-            | _ -> 
-              let partial_arg = Ext_ident.create Literals.partial_arg in 
-              Some partial_arg, Lam.var partial_arg in 
-
-          let cont = Lam.function_ 
-              ~arity:0
-              ~function_kind:Curried 
-              ~params:[]
-              ~body:(
-                Lam.apply new_fn [Lam.unit ; Lam.unit ] loc App_na
-              ) in 
-
-          match wrapper with 
-          | None -> cont 
-          | Some partial_arg 
-            -> Lam.let_ Strict partial_arg fn cont 
-
-      else if to_ > from then 
-        match fn with 
-        | Lfunction{params;body; function_kind} -> 
-          (* {[fun x -> f]} -> 
-             {[ fun x y -> f y ]}
-          *)
-          let extra_args = Ext_list.init (to_ - from) (fun _ -> Ident.create Literals.param) in 
-          Lam.function_
-            ~arity:to_ 
-            ~function_kind:Curried
-            ~params:(params @ extra_args )
-            ~body:(Lam.apply body (List.map Lam.var extra_args) loc App_na)
-        | _ -> 
-          let arity = to_ in 
-          let extra_args = Ext_list.init to_  (fun _ -> Ident.create Literals.param ) in 
-          let wrapper, new_fn = 
-            match fn with 
-            | Lvar _ 
-            | Lprim {primitive = Pfield _ ; args = [ Lglobal_module _] ; _}  -> 
-              None, fn
-            | _ -> 
-              let partial_arg = Ext_ident.create Literals.partial_arg in 
-              Some partial_arg, Lam.var partial_arg
-          in   
-          let cont = 
-            Lam.function_ 
-              ~arity
-              ~function_kind:Curried
-              ~params:extra_args 
-              ~body:(
-                let first_args, rest_args = Ext_list.take from extra_args in 
-                Lam.apply (Lam.apply new_fn (List.map Lam.var first_args) loc App_ml_full) (List.map Lam.var rest_args) loc App_na ) in 
-          begin match wrapper with 
-            | None -> cont 
-            | Some partial_arg -> 
-              Lam.let_ Strict partial_arg fn cont 
-          end    
-      else 
-        (* add3  --adjust to arity 1 ->
-           fun x -> (fun y z -> add3 x y z )
-
-           [fun x y z -> f x y z ]
-           [fun x -> [fun y z -> f x y z ]]
-           This is okay if the function is not held by other..
-        *)
-        begin match fn with 
-
-          | Lfunction 
-              {params; body; function_kind } (* TODO check arity = List.length params in debug mode *)
-            -> 
-            let arity = to_ in 
-            let extra_outer_args, extra_inner_args = Ext_list.take arity params in 
-            Lam.function_ 
-              ~arity 
-              ~function_kind:Curried
-              ~params:extra_outer_args 
-              ~body:(
-                Lam.function_ ~arity:(from - to_)
-                  ~function_kind:Curried ~params:extra_inner_args ~body:body)
-          | _
-            -> 
-            let extra_outer_args = 
-              Ext_list.init to_
-                (fun _ ->   Ident.create Literals.param) in
-            let wrapper, new_fn = 
-              match fn with 
-              | Lvar _ 
-              | Lprim {primitive = Pfield _ ; args = [ Lglobal_module _] ; _}  -> 
-                None, fn
-              | _ -> 
-                let partial_arg = Ext_ident.create Literals.partial_arg in 
-                Some partial_arg, Lam.var partial_arg
-            in   
-            let cont = 
-              Lam.function_ ~arity:to_ ~function_kind:Curried ~params:extra_outer_args 
-                ~body:(
-                  let arity = from - to_ in 
-                  let extra_inner_args =
-                    Ext_list.init arity (fun _ -> Ident.create Literals.param ) in 
-                  Lam.function_ ~arity ~function_kind:Curried ~params:extra_inner_args 
-                    ~body:(Lam.apply new_fn 
-                             (Ext_list.map_acc (List.map Lam.var extra_inner_args) Lam.var extra_outer_args )      
-                             loc App_ml_full)
-                )  in 
-            begin match wrapper with 
-              | None -> cont 
-              | Some partial_arg -> Lam.let_ Strict partial_arg fn  cont    
-            end
-        end 
-    | None, _ ->      
-      (** In this case [fn] is not [Lfunction], otherwise we would get [arity] *)
-      if to_ = 0 then 
-        let wrapper, new_fn  = 
-          match fn with 
-          | Lvar _ 
-          | Lprim{primitive = Pfield _ ; args = [Lglobal_module _]; _ }
-            -> 
-            None, fn 
-          | _ -> 
-            let partial_arg = Ext_ident.create Literals.partial_arg in 
-            Some partial_arg, Lam.var partial_arg in 
-
-        let cont = Lam.function_ 
-            ~arity:0
-            ~function_kind:Curried 
-            ~params:[]
-            ~body:(
-              Lam.apply new_fn [Lam.unit] loc App_na
-            ) in 
-
-        match wrapper with 
-        | None -> cont 
-        | Some partial_arg 
-          -> Lam.let_ Strict partial_arg fn cont 
-      else   
-        transform_under_supply to_ loc App_na fn []
-  end 
-
-
-(* | _ -> 
-   let partial_arg = Ext_ident.create Literals.partial_arg in 
-   Lam.let_ Strict partial_arg fn 
-    (let arity = to_ in 
-     let extra_args = Ext_list.init arity (fun _ -> Ident.create Literals.param) in 
-     Lam.function_ ~arity ~kind:Curried ~params:extra_args 
-       ~body:(Lam.apply fn (List.map Lam.var extra_args ) loc Lam.App_na )
-    ) *)
 
 end
 module Lam_exit_code : sig 
@@ -94772,12 +94724,12 @@ and
       end
 
 
-    | Lprim {primitive = Pjs_fn_make arity;  args = [fn]; loc } -> 
-          compile_lambda cxt (Lam_eta_conversion.unsafe_adjust_to_arity loc ~to_:arity ?from:None fn)
+    (* | Lprim {primitive = Pjs_fn_make arity;  args = [fn]; loc } ->  *)
+    (*       compile_lambda cxt (Lam_eta_conversion.unsafe_adjust_to_arity loc ~to_:arity ?from:None fn) *)
 
-    | Lprim {primitive = Pjs_fn_make arity;  
-      args = [] | _::_::_ } -> 
-      assert false 
+    (* | Lprim {primitive = Pjs_fn_make arity;   *)
+    (*   args = [] | _::_::_ } ->  *)
+    (*   assert false  *)
     | Lglobal_module i -> 
       (* introduced by 
          1. {[ include Array --> let include  = Array  ]}
@@ -95539,6 +95491,414 @@ and
   end
 
 end
+module Lam_eta_conversion : sig 
+#1 "lam_eta_conversion.mli"
+(* Copyright (C) 2015-2016 Bloomberg Finance L.P.
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * In addition to the permissions granted to you by the LGPL, you may combine
+ * or link a "work that uses the Library" with a publicly distributed version
+ * of this file to produce a combined library or application, then distribute
+ * that combined work under the terms of your choosing, with no requirement
+ * to comply with the obligations normally placed on you by section 4 of the
+ * LGPL version 3 (or the corresponding section of a later version of the LGPL
+ * should you choose to use a later version).
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. *)
+
+
+(** 
+  [transform n loc status fn args]
+  n is the number of missing arguments required for [fn].
+  Return a function of airty [n]
+*) 
+
+val transform_under_supply : 
+  int ->
+  Location.t -> Lam.apply_status -> Lam.t -> Lam.t list -> Lam.t
+
+
+val unsafe_adjust_to_arity :
+  Location.t -> 
+  to_:int -> 
+  ?from:int -> 
+  Lam.t -> 
+  Lam.t 
+end = struct
+#1 "lam_eta_conversion.ml"
+(* Copyright (C) 2015-2016 Bloomberg Finance L.P.
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * In addition to the permissions granted to you by the LGPL, you may combine
+ * or link a "work that uses the Library" with a publicly distributed version
+ * of this file to produce a combined library or application, then distribute
+ * that combined work under the terms of your choosing, with no requirement
+ * to comply with the obligations normally placed on you by section 4 of the
+ * LGPL version 3 (or the corresponding section of a later version of the LGPL
+ * should you choose to use a later version).
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. *)
+
+
+(*
+*)
+
+(** 
+   [transform_under_supply n loc status fn args]
+   n is the number of missing arguments required for [fn].
+   Return a function of airty [n]
+   example:
+   {[
+     let f x y =  x + y ;;
+     (* Invariant: there is no currying 
+        here since f's arity is 2, no side effect *)
+     f 3 ;;
+     function (y) -> f 3 y 
+   ]}
+*) 
+let transform_under_supply n loc status fn args = 
+  let extra_args = Ext_list.init n
+      (fun _ ->   (Ident.create Literals.param)) in
+  let extra_lambdas = List.map (fun x -> Lam.var x) extra_args in
+  begin match List.fold_right (fun (lam : Lam.t) (acc, bind) ->
+      match lam with
+      | Lvar _
+      | Lconst (Const_int _  
+        | Const_char _ | Const_string _ 
+        | Const_float _ | Const_int32 _ 
+        | Const_int64 _ | Const_nativeint _ 
+        | Const_pointer _ | Const_immstring _ ) 
+      | Lprim {primitive = Pfield _;
+               args =  [ Lglobal_module _ ]; _ }
+      | Lfunction _ 
+        ->
+        (lam :: acc, bind)
+      | _ ->
+        let v = Ident.create Literals.partial_arg in
+        (Lam.var v :: acc),  ((v, lam) :: bind)
+    ) (fn::args) ([],[])   with 
+  | fn :: args, [] -> 
+    (* More than no side effect in the [args], 
+       we try to avoid computation, so even if 
+       [x + y] is side effect free, we need eval it only once 
+    *)
+    (* TODO: Note we could adjust [fn] if [fn] is already a function
+       But it is dangerous to change the arity 
+       of an existing function which may cause inconsistency
+    *)
+    Lam.function_ ~arity:n ~function_kind:Curried ~params:extra_args
+      ~body:(Lam.apply fn (args @ extra_lambdas) 
+               loc 
+               status
+            ) 
+  | fn::args , bindings ->
+
+    let rest : Lam.t = 
+      Lam.function_ ~arity:n ~function_kind:Curried ~params:extra_args
+        ~body:(Lam.apply fn (args @ extra_lambdas) 
+                 loc 
+                 status
+              ) in
+    List.fold_left (fun lam (id,x) ->
+        Lam.let_ Strict id x lam
+      ) rest bindings
+  | _, _ -> assert false
+  end
+
+
+
+(* Invariant: mk0 : (unit -> 'a0) -> 'a0 t 
+                TODO: this case should be optimized, 
+                we need check where we handle [arity=0] 
+                as a special case -- 
+                if we do an optimization before compiling
+                into lambda
+
+   {[Fn.mk0]} is not intended for use by normal users
+
+   so we assume [Fn.mk0] is only used in such cases
+   {[
+     Fn.mk0 (fun _ -> .. )
+   ]}
+   when it is passed as a function directly
+*)
+(*TODO: can be optimized ?
+  {[\ x y -> (\u -> body x) x y]}
+  {[\u x -> body x]}        
+    rewrite rules 
+  {[
+    \x -> body 
+          --
+          \y (\x -> body ) y 
+  ]}
+  {[\ x y -> (\a b c -> g a b c) x y]}
+  {[ \a b -> \c -> g a b c ]}
+*)
+(** if arity = 0 then 
+            begin match fn with 
+              | Lfunction {params =  [_]; body}
+                ->
+                compile_lambda cxt 
+                  (Lam.function_ 
+                     ~arity:0 
+                     ~kind:Curried
+                     ~params:[]
+                     ~body)
+              | _ -> 
+                let wrapper, new_fn = 
+                  match fn with 
+                  | Lvar _ 
+                  | Lprim {primitive = Pfield _ ; args = [Lglobal_module _]; _} -> 
+                    None, fn 
+                  | _ ->  
+                    let partial_arg = Ext_ident.create Literals.partial_arg in 
+                    Some partial_arg, Lam.var partial_arg
+                in 
+                let cont =   
+                  (Lam.function_ ~arity:0 
+                     ~kind:Curried ~params:[] 
+                     ~body:(
+                       Lam.apply new_fn
+                         [Lam.unit]
+                         Location.none App_na
+                     )) in 
+                begin match wrapper with 
+                  | None ->      
+                    compile_lambda cxt  cont
+                  | Some partial_arg
+                    -> 
+                    compile_lambda cxt (Lam.let_ Strict partial_arg fn cont )  
+                end
+            end
+          else 
+            begin match fn with
+              | Lam.Lfunction{arity = len; kind; params = args; body}
+                ->
+                if len = arity then
+                  compile_lambda cxt fn 
+                else if len > arity then 
+                  let params, rest  = Ext_list.take arity args  in 
+                  compile_lambda cxt 
+                    (Lam.function_ 
+                       ~arity
+                       ~kind ~params
+                       ~body:(Lam.function_ ~arity:(len - arity)
+                                ~kind ~params:rest ~body)
+                    )
+                else (* len < arity *)
+                  compile_lambda cxt 
+                    transform_under_supply arity 
+                       Location.none App_na
+                       fn  [] )
+              (* let extra_args = Ext_list.init (arity - len) (fun _ ->   (Ident.create Literals.param)) in *)
+              (* let extra_lambdas = List.map (fun x -> Lambda.Lvar x) extra_args in *)
+              (* Lambda.Lfunction (kind, extra_args @ args , body ) *)
+
+                                | _ -> 
+                                compile_lambda cxt 
+                                (transform_under_supply arity
+                                Location.none App_na  fn  [] )
+                                end *)
+
+
+(** Unsafe function, we are changing arity here, it should be applied 
+    cautiously, since 
+    [let u = f] and we are chaning the arity of [f] it will affect 
+    the collection of [u]
+*)
+let unsafe_adjust_to_arity loc ~to_:(to_:int) ?from
+    (fn : Lam.t) = 
+  begin match from, fn  with 
+    | Some from, _ 
+    | None, Lfunction{arity=from} ->
+      if from = to_ then 
+        fn 
+      else if to_ = 0 then  
+        match fn with 
+        | Lfunction{params = [param]; body} -> 
+          Lam.function_ ~arity:0 ~function_kind:Curried 
+            ~params:[]
+            ~body:(
+              Lam.let_ Alias param Lam.unit body  
+            ) (* could be only introduced by 
+                 {[ Pjs_fn_make 0 ]} <- 
+                 {[ fun [@bs] () -> .. ]}
+              *)
+        | _ -> 
+          let wrapper, new_fn  = 
+            match fn with 
+            | Lvar _ 
+            | Lprim{primitive = Pfield _ ; args = [Lglobal_module _]; _ }
+              -> 
+              None, fn 
+            | _ -> 
+              let partial_arg = Ext_ident.create Literals.partial_arg in 
+              Some partial_arg, Lam.var partial_arg in 
+
+          let cont = Lam.function_ 
+              ~arity:0
+              ~function_kind:Curried 
+              ~params:[]
+              ~body:(
+                Lam.apply new_fn [Lam.unit ; Lam.unit ] loc App_na
+              ) in 
+
+          match wrapper with 
+          | None -> cont 
+          | Some partial_arg 
+            -> Lam.let_ Strict partial_arg fn cont 
+
+      else if to_ > from then 
+        match fn with 
+        | Lfunction{params;body; function_kind} -> 
+          (* {[fun x -> f]} -> 
+             {[ fun x y -> f y ]}
+          *)
+          let extra_args = Ext_list.init (to_ - from) (fun _ -> Ident.create Literals.param) in 
+          Lam.function_
+            ~arity:to_ 
+            ~function_kind:Curried
+            ~params:(params @ extra_args )
+            ~body:(Lam.apply body (List.map Lam.var extra_args) loc App_na)
+        | _ -> 
+          let arity = to_ in 
+          let extra_args = Ext_list.init to_  (fun _ -> Ident.create Literals.param ) in 
+          let wrapper, new_fn = 
+            match fn with 
+            | Lvar _ 
+            | Lprim {primitive = Pfield _ ; args = [ Lglobal_module _] ; _}  -> 
+              None, fn
+            | _ -> 
+              let partial_arg = Ext_ident.create Literals.partial_arg in 
+              Some partial_arg, Lam.var partial_arg
+          in   
+          let cont = 
+            Lam.function_ 
+              ~arity
+              ~function_kind:Curried
+              ~params:extra_args 
+              ~body:(
+                let first_args, rest_args = Ext_list.take from extra_args in 
+                Lam.apply (Lam.apply new_fn (List.map Lam.var first_args) loc App_ml_full) (List.map Lam.var rest_args) loc App_na ) in 
+          begin match wrapper with 
+            | None -> cont 
+            | Some partial_arg -> 
+              Lam.let_ Strict partial_arg fn cont 
+          end    
+      else 
+        (* add3  --adjust to arity 1 ->
+           fun x -> (fun y z -> add3 x y z )
+
+           [fun x y z -> f x y z ]
+           [fun x -> [fun y z -> f x y z ]]
+           This is okay if the function is not held by other..
+        *)
+        begin match fn with 
+
+          | Lfunction 
+              {params; body; function_kind } (* TODO check arity = List.length params in debug mode *)
+            -> 
+            let arity = to_ in 
+            let extra_outer_args, extra_inner_args = Ext_list.take arity params in 
+            Lam.function_ 
+              ~arity 
+              ~function_kind:Curried
+              ~params:extra_outer_args 
+              ~body:(
+                Lam.function_ ~arity:(from - to_)
+                  ~function_kind:Curried ~params:extra_inner_args ~body:body)
+          | _
+            -> 
+            let extra_outer_args = 
+              Ext_list.init to_
+                (fun _ ->   Ident.create Literals.param) in
+            let wrapper, new_fn = 
+              match fn with 
+              | Lvar _ 
+              | Lprim {primitive = Pfield _ ; args = [ Lglobal_module _] ; _}  -> 
+                None, fn
+              | _ -> 
+                let partial_arg = Ext_ident.create Literals.partial_arg in 
+                Some partial_arg, Lam.var partial_arg
+            in   
+            let cont = 
+              Lam.function_ ~arity:to_ ~function_kind:Curried ~params:extra_outer_args 
+                ~body:(
+                  let arity = from - to_ in 
+                  let extra_inner_args =
+                    Ext_list.init arity (fun _ -> Ident.create Literals.param ) in 
+                  Lam.function_ ~arity ~function_kind:Curried ~params:extra_inner_args 
+                    ~body:(Lam.apply new_fn 
+                             (Ext_list.map_acc (List.map Lam.var extra_inner_args) Lam.var extra_outer_args )      
+                             loc App_ml_full)
+                )  in 
+            begin match wrapper with 
+              | None -> cont 
+              | Some partial_arg -> Lam.let_ Strict partial_arg fn  cont    
+            end
+        end 
+    | None, _ ->      
+      (** In this case [fn] is not [Lfunction], otherwise we would get [arity] *)
+      if to_ = 0 then 
+        let wrapper, new_fn  = 
+          match fn with 
+          | Lvar _ 
+          | Lprim{primitive = Pfield _ ; args = [Lglobal_module _]; _ }
+            -> 
+            None, fn 
+          | _ -> 
+            let partial_arg = Ext_ident.create Literals.partial_arg in 
+            Some partial_arg, Lam.var partial_arg in 
+
+        let cont = Lam.function_ 
+            ~arity:0
+            ~function_kind:Curried 
+            ~params:[]
+            ~body:(
+              Lam.apply new_fn [Lam.unit] loc App_na
+            ) in 
+
+        match wrapper with 
+        | None -> cont 
+        | Some partial_arg 
+          -> Lam.let_ Strict partial_arg fn cont 
+      else   
+        transform_under_supply to_ loc App_na fn []
+  end 
+
+
+(* | _ -> 
+   let partial_arg = Ext_ident.create Literals.partial_arg in 
+   Lam.let_ Strict partial_arg fn 
+    (let arity = to_ in 
+     let extra_args = Ext_list.init arity (fun _ -> Ident.create Literals.param) in 
+     Lam.function_ ~arity ~kind:Curried ~params:extra_args 
+       ~body:(Lam.apply fn (List.map Lam.var extra_args ) loc Lam.App_na )
+    ) *)
+
+end
 module Lam_stats_util : sig 
 #1 "lam_stats_util.mli"
 (* Copyright (C) 2015-2016 Bloomberg Finance L.P.
@@ -95960,19 +96320,19 @@ let alpha_conversion (meta : Lam_stats.meta) (lam : Lam.t) : Lam.t =
       let bindings = List.map (fun (k,l) -> (k, simpl l)) bindings in 
       Lam.letrec bindings (simpl body) 
     | Lglobal_module _ -> lam 
-    | Lprim {primitive = (Lam.Pjs_fn_make len) as primitive ; args = [arg] 
-      ; loc } -> 
+    (* | Lprim {primitive = (Lam.Pjs_fn_make len) as primitive ; args = [arg]  *)
+    (*   ; loc } ->  *)
       
-      begin match Lam_stats_util.get_arity meta arg with       
-      | Determin (b, (x,_)::_, tail)
-        -> 
-        let arg = simpl arg in
-          Lam_eta_conversion.unsafe_adjust_to_arity loc 
-            ~to_:len 
-            ~from:x
-            arg 
-      | _  -> Lam.prim ~primitive ~args:[simpl arg] loc
-      end
+    (*   begin match Lam_stats_util.get_arity meta arg with        *)
+    (*   | Determin (b, (x,_)::_, tail) *)
+    (*     ->  *)
+    (*     let arg = simpl arg in *)
+    (*       Lam_eta_conversion.unsafe_adjust_to_arity loc  *)
+    (*         ~to_:len  *)
+    (*         ~from:x *)
+    (*         arg  *)
+    (*   | _  -> Lam.prim ~primitive ~args:[simpl arg] loc *)
+    (*   end *)
     | Lprim {primitive; args ; loc} -> 
       Lam.prim ~primitive ~args:(List.map simpl  args) loc
     | Lfunction {arity; function_kind; params; body = l} ->
