@@ -25,12 +25,19 @@ function queryGist() {
         }
     );
     return qd['gist'];
-}
-function loadGist (gist) {
-    if(gist){
-        contentFromResponse(gist)
-    }
-    
+};
+
+function loadSession () {
+    var clientHash = location.hash.split('#')[1];
+    if (clientHash) {
+      myCode1Mirror.setValue(atob(clientHash));
+    }else{
+        var clientGist = queryGist();
+        if(clientGist){
+            contentFromResponse(gist);
+        }
+    };
+
     $.
     ajax(
     {url : "examples/examples.json",
@@ -50,14 +57,6 @@ function loadGist (gist) {
         console.log(arguments)
     })
 
-}
+};
 
-// var gist = '1ce559ca46157b9dc15649450bea46fa';
-var clientGist = queryGist();
-//
-
-if(clientGist){
-    start(clientGist)
-}else{        
- start()
-}
+start()
