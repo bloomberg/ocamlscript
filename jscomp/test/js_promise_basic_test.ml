@@ -161,10 +161,12 @@ let () =
   ignore @@ createPromiseRejectTest ();
   ignore @@ createPromiseFulfillTest ()
 
+let two = Js.Promise.resolve 2   
+let three = Js.Promise.resolve 3 
 (** TODO: async tests?
 *)
 let () = 
-    (Js.Promise.all2 (Js.Promise.resolve 2, Js.Promise.resolve 3))
+    (Js.Promise.all2 (two, three))
     |> Js.Promise.then_ (fun (a,b) -> 
     eq __LOC__ (a,b) (2,3); 
     
@@ -172,7 +174,10 @@ let () =
     )
     |> ignore
 
+;; two |> Js.Promise.thenDo Js.log
+;; three |> Js.Promise.thenIgnore Js.log
 
+let unit_val = three |> Js.Promise.thenIgnore Js.log
 ;; Js.log (List.length !suites)     
      
 ;; Js.log "hey"
