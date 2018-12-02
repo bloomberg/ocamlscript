@@ -19,6 +19,7 @@ let preprocess fn oc =
   let ic = open_in_bin fn in 
   let lexbuf = Lexing.from_channel ic in 
   let buf = Buffer.create 4096 in 
+  let prevLineNumber = ref (-1) in
   Location.init lexbuf fn;
   Lexer.init ();
   lexbuf
@@ -27,12 +28,15 @@ let preprocess fn oc =
     TODO: output line directive
    *)
   |> List.iter
-    (fun (start, stop) ->       
+    (fun (start, stop, ln) ->       
        let len = stop - start in 
        if len <> 0 then 
          begin
            seek_in ic start ; 
            Buffer.add_channel buf ic len ; 
+           if !prevLineNumber <> -1 then
+            Printf.fprintf oc "#%d \"%s\"" (!prevLineNumber + 1) fn;
+           prevLineNumber := ln;
            Buffer.output_buffer oc buf ; 
            Buffer.clear buf;
          end
