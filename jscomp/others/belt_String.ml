@@ -159,3 +159,99 @@ external substr : from:int -> t = "" [@@bs.send.pipe: t]
 *)
 external trim : t -> t = "" [@@bs.send]
 
+(* link to JS built-ins *)
+external str_length: t -> int = "length" [@@bs.get]
+external array_concat: 'a array -> 'a array -> 'a array = "concat" [@@bs.send]
+external codePointAt : int -> int option = "" [@@bs.send.pipe: string] [@@bs.return {undefined_to_opt}] 
+external fromCodePoint : int -> t = "String.fromCodePoint" [@@bs.val] (** ES2015 *)
+
+(**
+  [unicodeCharAt] is a utility routine that returns a tuple containing
+  the Unicode character at position n and length in UTF-16 units (1 or 2). If
+  invalid, presume it consumes one UTF-16 unit.
+*)
+let unicodeCharAt (s: string) (n: int) =
+  (let cPoint = codePointAt n s in
+    match cPoint with
+      | Some point -> ((fromCodePoint point), if (point > 65535) then 2 else 1)
+      | None -> ("", 1)
+  : string * int)
+
+(**
+  [reduce] takes a string argument, initial value, and a reducer
+  function whose arguments are an accumulated value and a character from the string.
+
+  [reduce] starts the accumulated value as the initial value, and updates it by
+  applying the reducer function to each character in the string.
+
+@example {[  
+  let reverser (result: string) (item: string) =
+    (item ^ result : string)
+  
+  reduce "abcde" "" reverser = "edcba"
+]}
+*)
+
+let reduce (s: string) (acc: 'a) (f: 'a -> string -> 'a) =
+  (let rec helper (acc: 'a) (index: int) =
+    match index with
+    | n when n >= (str_length s) -> acc
+    | n -> 
+        let (theChar, nBytes) = unicodeCharAt s n in
+        helper (f acc theChar) (n + nBytes) in
+
+  helper acc 0 : 'a)
+
+(**
+  [map s f] applies a function [f] to each character in the given string [s],
+  returning a new string with the concatenated results of the function calls.
+  Note that the return value from this function is a string.
+
+@example {[
+let addDash (s : string) = (s ^ "-" : string)
+map "abcde" addDash = "a-b-c-d-e-"
+]}
+*)
+
+let map (s : string) (f : string -> string) =
+  (reduce s "" (fun acc item -> acc ^ (f item)) : string)
+
+(**
+  [arrayMap s f] applies a function [f] to each character in the given string [s],
+  returning an array containing the results of the function calls.
+  
+@example {[
+let toCode (s : string) = (Js.String.charCodeAt 0 s : float)
+arrayMap "abcde" toCode = [| 97.0; 98.0; 99.0; 100.0; 101.0 |]
+]}
+*)
+let arrayMap (s : string) (f : string -> 'a) =
+  (reduce s [||] (fun acc item -> array_concat acc [|(f item)|]) : 'a array)
+
+(**
+  [keep s f] applies a function [f] to each character in the given string [s].
+  It returns a new string containing only the characters for which [f] returned [true].
+
+@example {[
+let nonVowel (s:string) = 
+  (not (s = "a" || s = "e" || s = "i" || s = "o" || s = "u") : bool)
+keep "cauliflower" nonVowel = "clflwr"
+]}
+*)
+let keep (s: string) (f: string -> bool) =
+  (reduce s "" (fun acc item ->
+      if (f item) then acc ^ item else acc) : string)
+
+(**
+  [arrayKeep s f] applies a function [f] to each character in the given string [s].
+  It returns an array containing only the characters for which [f] returned [true].
+  
+@example {[
+let nonVowel (s:string) = 
+  (not (s = "a" || s = "e" || s = "i" || s = "o" || s = "u") : bool)
+arrayKeep "cauliflower" nonVowel = [|"c"; "l"; "f"; "l"; "w"; "r"|]
+]}
+*)
+let arrayKeep (s:string) (f: string -> bool) =
+  (reduce s [||] (fun acc item ->
+    if (f item) then array_concat acc [|item|] else acc) : 'a array)
