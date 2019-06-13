@@ -34,7 +34,7 @@ type dependencies = dependency list
 type entries_t = JsTarget of string | NativeTarget of string | BytecodeTarget of string
 
 
-type reason_react_jsx = 
+type g_react = 
   | Jsx_v2
   | Jsx_v3
   (* string option  *)
@@ -68,14 +68,14 @@ type t =
       [.merlin]
     *)
     refmt : refmt;
-    refmt_flags : string list;
+    g_re_flag : string list;
     js_post_build_cmd : string option;
     package_specs : Bsb_package_specs.t ; 
     globbed_dirs : string list;
     bs_file_groups : Bsb_file_groups.file_groups;
     files_to_install : String_hash_set.t ;
     generate_merlin : bool ; 
-    reason_react_jsx : reason_react_jsx option; (* whether apply PPX transform or not*)
+    g_react : g_react option; (* whether apply PPX transform or not*)
     entries : entries_t list ;
     generators : command String_map.t ; 
     cut_generators : bool; (* note when used as a dev mode, we will always ignore it *)

@@ -94,11 +94,11 @@ let version = "version"
 let name = "name"
 (* let ocaml_config = "ocaml-config" *)
 let bsdep = "bsdep"
-let ppx_flags = "ppx-flags"
+let g_ppx_flag = "ppx-flags"
 let pp_flags = "pp-flags"
 let bsc = "bsc"
 let refmt = "refmt"
-let refmt_flags = "refmt-flags"
+let g_re_flag = "refmt-flags"
 let bs_external_includes = "bs-external-includes"
 let bs_lib_dir = "bs-lib-dir"
 let bs_dependencies = "bs-dependencies"
@@ -128,7 +128,7 @@ let export_all = "all"
 let export_none = "none"
 
 let bsb_dir_group = "bsb_dir_group"
-let bsc_lib_includes = "bsc_lib_includes"
+let g_lib_includes = "g_lib_includes"
 let use_stdlib = "use-stdlib"
 let reason = "reason"
 let react_jsx = "react-jsx"
@@ -6617,10 +6617,10 @@ Build quoted commandline arguments for bsc.exe for the given ppx flags
 
 Use:
 {[
-ppx_flags [ppxs]
+g_ppx_flag [ppxs]
 ]}
 *)
-val ppx_flags : string list -> string
+val g_ppx_flag : string list -> string
 
 val pp_flag : string  -> string
 
@@ -6726,7 +6726,7 @@ let (//) = Ext_path.combine
 
 
 (*TODO: optimize *)
-let ppx_flags xs =
+let g_ppx_flag xs =
   flag_concat "-ppx"
     (Ext_list.map xs Filename.quote)
 
@@ -7570,10 +7570,10 @@ let get_current_number_of_dev_groups =
 
 (** bsb generate pre-defined variables [bsc_group_i_includes]
   for each rule, there is variable [bsc_extra_excludes]
-  [bsc_extra_includes] are for app test etc
+  [g_extra_includes] are for app test etc
   it will be like
   {[
-    bsc_extra_includes = ${bsc_group_1_includes}
+    g_extra_includes = ${bsc_group_1_includes}
   ]}
   where [bsc_group_1_includes] will be pre-calcuated
 *)
@@ -11187,7 +11187,7 @@ type dependencies = dependency list
 type entries_t = JsTarget of string | NativeTarget of string | BytecodeTarget of string
 
 
-type reason_react_jsx = 
+type g_react = 
   | Jsx_v2
   | Jsx_v3
   (* string option  *)
@@ -11221,14 +11221,14 @@ type t =
       [.merlin]
     *)
     refmt : refmt;
-    refmt_flags : string list;
+    g_re_flag : string list;
     js_post_build_cmd : string option;
     package_specs : Bsb_package_specs.t ; 
     globbed_dirs : string list;
     bs_file_groups : Bsb_file_groups.file_groups;
     files_to_install : String_hash_set.t ;
     generate_merlin : bool ; 
-    reason_react_jsx : reason_react_jsx option; (* whether apply PPX transform or not*)
+    g_react : g_react option; (* whether apply PPX transform or not*)
     entries : entries_t list ;
     generators : command String_map.t ; 
     cut_generators : bool; (* note when used as a dev mode, we will always ignore it *)
@@ -11267,7 +11267,7 @@ module Bsb_default : sig
 
 val bsc_flags : string list 
 
-val refmt_flags : string list  
+val g_re_flag : string list  
 
 val refmt_v3 : string
 
@@ -11309,7 +11309,7 @@ let bsc_flags =
   ] 
 
 
-let refmt_flags = ["--print"; "binary"]
+let g_re_flag = ["--print"; "binary"]
 
 let refmt_v3 = "refmt.exe"
 let refmt_none = "refmt.exe"
@@ -11780,9 +11780,9 @@ let interpret_json
 
   : Bsb_config_types.t =
 
-  let reason_react_jsx : Bsb_config_types.reason_react_jsx option ref = ref None in 
+  let g_react : Bsb_config_types.g_react option ref = ref None in 
   let config_json = cwd // Literals.bsconfig_json in
-  let refmt_flags = ref Bsb_default.refmt_flags in
+  let g_re_flag = ref Bsb_default.g_re_flag in
   let bs_external_includes = ref [] in 
   (** we should not resolve it too early,
       since it is external configuration, no {!Bsb_build_util.convert_and_resolve_path}
@@ -11927,9 +11927,9 @@ let interpret_json
         | Some (Flo{loc; flo}) -> 
           begin match flo with 
             | "2" -> 
-              reason_react_jsx := Some Jsx_v2
+              g_react := Some Jsx_v2
             | "3" -> 
-              reason_react_jsx := Some Jsx_v3
+              g_react := Some Jsx_v3
             | _ -> Bsb_exception.errorf ~loc "Unsupported jsx version %s" flo
           end        
         | Some x -> Bsb_exception.config_error x 
@@ -11961,13 +11961,13 @@ let interpret_json
     (* More design *)
     |? (Bsb_build_schemas.bs_external_includes, `Arr (fun s -> bs_external_includes := get_list_string s))
     |? (Bsb_build_schemas.bsc_flags, `Arr (fun s -> bsc_flags := Bsb_build_util.get_list_string_acc s !bsc_flags))
-    |? (Bsb_build_schemas.ppx_flags, `Arr (fun s -> 
+    |? (Bsb_build_schemas.g_ppx_flag, `Arr (fun s -> 
         let args = get_list_string s in 
         let a,b = Ext_list.map_split_opt  args (fun p ->
             if p = "" then failwith "invalid ppx, empty string found"
             else 
               let file, checked = 
-                Bsb_build_util.resolve_bsb_magic_file ~cwd ~desc:Bsb_build_schemas.ppx_flags p 
+                Bsb_build_util.resolve_bsb_magic_file ~cwd ~desc:Bsb_build_schemas.g_ppx_flag p 
               in 
               let some_file = Some file in 
               some_file, if checked then some_file else None
@@ -11990,7 +11990,7 @@ let interpret_json
                   Bsb_exception.errorf ~loc {| generators exepect format like { "name" : "cppo",  "command"  : "cppo $in -o $out"} |}
                 end
               | _ -> acc ) ))
-    |? (Bsb_build_schemas.refmt_flags, `Arr (fun s -> refmt_flags := get_list_string s))
+    |? (Bsb_build_schemas.g_re_flag, `Arr (fun s -> g_re_flag := get_list_string s))
     |? (Bsb_build_schemas.entries, `Arr (fun s -> entries := parse_entries s))
     |> ignore ;
     begin match String_map.find_opt map Bsb_build_schemas.sources with 
@@ -12048,7 +12048,7 @@ let interpret_json
           bs_dependencies = !bs_dependencies;
           bs_dev_dependencies = !bs_dev_dependencies;
           refmt;
-          refmt_flags = !refmt_flags ;
+          g_re_flag = !g_re_flag ;
           js_post_build_cmd =  !js_post_build_cmd ;
           package_specs = 
             (match override_package_specs with 
@@ -12059,7 +12059,7 @@ let interpret_json
           files_to_install = String_hash_set.create 96;
           built_in_dependency = !built_in_package;
           generate_merlin = !generate_merlin ;
-          reason_react_jsx = !reason_react_jsx ;  
+          g_react = !g_react ;  
           entries = !entries;
           generators = !generators ; 
           cut_generators = !cut_generators
@@ -12216,7 +12216,7 @@ let merlin_file_gen ~cwd
       bsc_flags; 
       built_in_dependency;
       external_includes; 
-      reason_react_jsx ; 
+      g_react ; 
       namespace;
       package_name;
       warning; 
@@ -12233,7 +12233,7 @@ let merlin_file_gen ~cwd
     );  
     Buffer.add_string buffer 
       (merlin_flg_ppx  ^ 
-       (match reason_react_jsx with 
+       (match g_react with 
         | None -> built_in_ppx
         | Some opt ->
           Printf.sprintf "\"%s -bs-jsx %d\"" built_in_ppx
@@ -12890,18 +12890,18 @@ let bsdep = "bsdep"
 
 let bsc_flags = "bsc_flags"
 
-let ppx_flags = "ppx_flags"
+let g_ppx_flag = "g_ppx_flag"
 let ppx_checked_files = "ppx_checked_files"
 let pp_flags = "pp_flags"
-let bs_package_includes = "bs_package_includes"
+let g_pkg_include = "g_pkg_include"
 
 let bs_package_dev_includes = "bs_package_dev_includes"
 
 let refmt = "refmt"
 
-let reason_react_jsx = "reason_react_jsx"
+let g_react = "g_react"
 
-let refmt_flags = "refmt_flags"
+let g_re_flag = "g_re_flag"
 
 let postbuild = "postbuild"
 
@@ -13075,18 +13075,18 @@ let define
     since the default is already good -- it does not*)
 let build_ast_and_module_sets =
   define
-    ~command:"$bsc  $pp_flags $ppx_flags $warnings $bsc_flags -c -o $out -bs-syntax-only -bs-binary-ast $in"
+    ~command:"$bsc  $pp_flags $g_ppx_flag $warnings $bsc_flags -c -o $out -bs-syntax-only -bs-binary-ast $in"
     "build_ast_and_module_sets"
 
 
 let build_ast_and_module_sets_from_re =
   define
-    ~command:"$bsc -pp \"$refmt $refmt_flags\" $reason_react_jsx  $ppx_flags $warnings $bsc_flags -c -o $out -bs-syntax-only -bs-binary-ast -impl $in"
+    ~command:"$bsc -pp \"$refmt $g_re_flag\" $g_react  $g_ppx_flag $warnings $bsc_flags -c -o $out -bs-syntax-only -bs-binary-ast -impl $in"
     "build_ast_and_module_sets_from_re"
 
 let build_ast_and_module_sets_from_rei =
   define
-    ~command:"$bsc -pp \"$refmt $refmt_flags\" $reason_react_jsx $ppx_flags $warnings $bsc_flags  -c -o $out -bs-syntax-only -bs-binary-ast -intf $in"
+    ~command:"$bsc -pp \"$refmt $g_re_flag\" $g_react $g_ppx_flag $warnings $bsc_flags  -c -o $out -bs-syntax-only -bs-binary-ast -intf $in"
     "build_ast_and_module_sets_from_rei"
 
 let copy_resources =    
@@ -13119,10 +13119,10 @@ let build_bin_deps =
 (* below are rules not local any more *)
 (**************************************)
 
-(* [bsc_lib_includes] are fixed for libs *)
+(* [g_lib_includes] are fixed for libs *)
 let build_cmj_js =
   define
-    ~command:"$bsc $bs_package_flags -bs-assume-has-mli -bs-no-implicit-include $bs_package_includes $bsc_lib_includes $bsc_extra_includes $warnings $bsc_flags $gentypeconfig -o $out -c  $in $postbuild"
+    ~command:"$bsc $bs_package_flags -bs-assume-has-mli -bs-no-implicit-include $g_pkg_include $g_lib_includes $g_extra_includes $warnings $bsc_flags $gentypeconfig -o $out -c  $in $postbuild"
     ~dyndep:"$in_e.d"
     ~restat:() (* Always restat when having mli *)
     "build_cmj_only"
@@ -13130,13 +13130,13 @@ let build_cmj_js =
 
 let build_cmj_cmi_js =
   define
-    ~command:"$bsc $bs_package_flags -bs-assume-no-mli -bs-no-implicit-include $bs_package_includes $bsc_lib_includes $bsc_extra_includes $warnings $bsc_flags $gentypeconfig -o $out -c  $in $postbuild"
+    ~command:"$bsc $bs_package_flags -bs-assume-no-mli -bs-no-implicit-include $g_pkg_include $g_lib_includes $g_extra_includes $warnings $bsc_flags $gentypeconfig -o $out -c  $in $postbuild"
     ~dyndep:"$in_e.d" 
     ~restat:() (* may not need it in the future *)
     "build_cmj_cmi" (* the compiler should never consult [.cmi] when [.mli] does not exist *)
 let build_cmi =
   define
-    ~command:"$bsc $bs_package_flags -bs-no-implicit-include $bs_package_includes $bsc_lib_includes $bsc_extra_includes $warnings $bsc_flags $gentypeconfig -o $out -c  $in"
+    ~command:"$bsc $bs_package_flags -bs-no-implicit-include $g_pkg_include $g_lib_includes $g_extra_includes $warnings $bsc_flags $gentypeconfig -o $out -c  $in"
     ~dyndep:"$in_e.d"
     ~restat:()
     "build_cmi" (* the compiler should always consult [.cmi], current the vanilla ocaml compiler only consult [.cmi] when [.mli] found*)
@@ -13521,11 +13521,11 @@ let make_common_shadows
     } ::
     (if Bsb_dir_index.is_lib_dir dir_index  then [] else
        [{
-         key = Bsb_ninja_global_vars.bs_package_includes; 
+         key = Bsb_ninja_global_vars.g_pkg_include; 
          op = AppendVar Bsb_ninja_global_vars.bs_package_dev_includes 
        }
         ;
-        { key = "bsc_extra_includes";
+        { key = "g_extra_includes";
           op = OverwriteVar (Bsb_dir_index.string_of_bsb_dev_include dir_index)
         }
        ]
@@ -13813,13 +13813,13 @@ let output_ninja_and_namespace_map
       bs_dependencies;
       bs_dev_dependencies;
       refmt;
-      refmt_flags;
+      g_re_flag;
       js_post_build_cmd;
       package_specs;
       bs_file_groups;
       files_to_install;
       built_in_dependency;
-      reason_react_jsx;
+      g_react;
       generators ;
       namespace ; 
       warning;
@@ -13830,14 +13830,14 @@ let output_ninja_and_namespace_map
   let bsc = bsc_dir // bsc_exe in   (* The path to [bsc.exe] independent of config  *)
   let bsdep = bsc_dir // bsb_helper_exe in (* The path to [bsb_heler.exe] *)
   let cwd_lib_bs = cwd // Bsb_config.lib_bs in 
-  let ppx_flags = Bsb_build_util.ppx_flags ppx_files in
+  let g_ppx_flag = Bsb_build_util.g_ppx_flag ppx_files in
   let bsc_flags =  
       String.concat Ext_string.single_space 
       (if not_dev then "-bs-quiet" :: bsc_flags else bsc_flags)
   in
-  let refmt_flags = String.concat Ext_string.single_space refmt_flags in
+  let g_re_flag = String.concat Ext_string.single_space g_re_flag in
   let oc = open_out_bin (cwd_lib_bs // Literals.build_ninja) in
-  let bs_package_includes = 
+  let g_pkg_include = 
     Bsb_build_util.include_dirs @@ Ext_list.map bs_dependencies
       (fun x  -> x.package_install_path) 
   in
@@ -13872,8 +13872,8 @@ let output_ninja_and_namespace_map
   in
   let output_reason_config () =   
     if !has_reason_files then 
-      let reason_react_jsx_flag = 
-        match reason_react_jsx with 
+      let g_react_flag = 
+        match g_react with 
         | None -> Ext_string.empty          
         | Some v ->           
           Ext_string.inter2 "-bs-jsx" (match v with Jsx_v2 -> "2" | Jsx_v3 -> "3")
@@ -13888,8 +13888,8 @@ let output_ninja_and_namespace_map
             | Refmt_v3 -> 
               bsc_dir // Bsb_default.refmt_v3
             | Refmt_custom x -> x );
-          Bsb_ninja_global_vars.reason_react_jsx, reason_react_jsx_flag; 
-          Bsb_ninja_global_vars.refmt_flags, refmt_flags;
+          Bsb_ninja_global_vars.g_react, g_react_flag; 
+          Bsb_ninja_global_vars.g_re_flag, g_re_flag;
         |] oc 
   in   
   let () = 
@@ -13922,8 +13922,8 @@ let output_ninja_and_namespace_map
         Bsb_ninja_global_vars.bsdep, bsdep;
         Bsb_ninja_global_vars.warnings, warnings;
         Bsb_ninja_global_vars.bsc_flags, bsc_flags ;
-        Bsb_ninja_global_vars.ppx_flags, ppx_flags;
-        Bsb_ninja_global_vars.bs_package_includes, bs_package_includes;
+        Bsb_ninja_global_vars.g_ppx_flag, g_ppx_flag;
+        Bsb_ninja_global_vars.g_pkg_include, g_pkg_include;
         Bsb_ninja_global_vars.bs_package_dev_includes, bs_package_dev_includes;  
         Bsb_ninja_global_vars.namespace , namespace_flag ; 
         Bsb_build_schemas.bsb_dir_group, "0"  (*TODO: avoid name conflict in the future *)
@@ -13943,9 +13943,9 @@ let output_ninja_and_namespace_map
         (fun x -> if Filename.is_relative x then Bsb_config.rev_lib_bs_prefix  x else x) 
 
   in 
-  let emit_bsc_lib_includes source_dirs = 
+  let emit_g_lib_includes source_dirs = 
     Bsb_ninja_util.output_kv
-      Bsb_build_schemas.bsc_lib_includes 
+      Bsb_build_schemas.g_lib_includes 
       (Bsb_build_util.include_dirs @@ 
        (all_includes 
           (if namespace = None then source_dirs 
@@ -13998,7 +13998,7 @@ let output_ninja_and_namespace_map
 
   output_reason_config ();
   Bsb_db_io.write_build_cache ~dir:cwd_lib_bs bs_groups ;
-  emit_bsc_lib_includes bsc_lib_dirs;
+  emit_g_lib_includes bsc_lib_dirs;
   Ext_list.iter static_resources (fun output -> 
       Bsb_ninja_util.output_build
         oc

@@ -52,13 +52,13 @@ let output_ninja_and_namespace_map
       bs_dependencies;
       bs_dev_dependencies;
       refmt;
-      refmt_flags;
+      g_re_flag;
       js_post_build_cmd;
       package_specs;
       bs_file_groups;
       files_to_install;
       built_in_dependency;
-      reason_react_jsx;
+      g_react;
       generators ;
       namespace ; 
       warning;
@@ -69,14 +69,14 @@ let output_ninja_and_namespace_map
   let bsc = bsc_dir // bsc_exe in   (* The path to [bsc.exe] independent of config  *)
   let bsdep = bsc_dir // bsb_helper_exe in (* The path to [bsb_heler.exe] *)
   let cwd_lib_bs = cwd // Bsb_config.lib_bs in 
-  let ppx_flags = Bsb_build_util.ppx_flags ppx_files in
+  let g_ppx_flag = Bsb_build_util.g_ppx_flag ppx_files in
   let bsc_flags =  
       String.concat Ext_string.single_space 
       (if not_dev then "-bs-quiet" :: bsc_flags else bsc_flags)
   in
-  let refmt_flags = String.concat Ext_string.single_space refmt_flags in
+  let g_re_flag = String.concat Ext_string.single_space g_re_flag in
   let oc = open_out_bin (cwd_lib_bs // Literals.build_ninja) in
-  let bs_package_includes = 
+  let g_pkg_include = 
     Bsb_build_util.include_dirs @@ Ext_list.map bs_dependencies
       (fun x  -> x.package_install_path) 
   in
@@ -111,8 +111,8 @@ let output_ninja_and_namespace_map
   in
   let output_reason_config () =   
     if !has_reason_files then 
-      let reason_react_jsx_flag = 
-        match reason_react_jsx with 
+      let g_react_flag = 
+        match g_react with 
         | None -> Ext_string.empty          
         | Some v ->           
           Ext_string.inter2 "-bs-jsx" (match v with Jsx_v2 -> "2" | Jsx_v3 -> "3")
@@ -127,8 +127,8 @@ let output_ninja_and_namespace_map
             | Refmt_v3 -> 
               bsc_dir // Bsb_default.refmt_v3
             | Refmt_custom x -> x );
-          Bsb_ninja_global_vars.reason_react_jsx, reason_react_jsx_flag; 
-          Bsb_ninja_global_vars.refmt_flags, refmt_flags;
+          Bsb_ninja_global_vars.g_react, g_react_flag; 
+          Bsb_ninja_global_vars.g_re_flag, g_re_flag;
         |] oc 
   in   
   let () = 
@@ -161,8 +161,8 @@ let output_ninja_and_namespace_map
         Bsb_ninja_global_vars.bsdep, bsdep;
         Bsb_ninja_global_vars.warnings, warnings;
         Bsb_ninja_global_vars.bsc_flags, bsc_flags ;
-        Bsb_ninja_global_vars.ppx_flags, ppx_flags;
-        Bsb_ninja_global_vars.bs_package_includes, bs_package_includes;
+        Bsb_ninja_global_vars.g_ppx_flag, g_ppx_flag;
+        Bsb_ninja_global_vars.g_pkg_include, g_pkg_include;
         Bsb_ninja_global_vars.bs_package_dev_includes, bs_package_dev_includes;  
         Bsb_ninja_global_vars.namespace , namespace_flag ; 
         Bsb_build_schemas.bsb_dir_group, "0"  (*TODO: avoid name conflict in the future *)
@@ -182,9 +182,9 @@ let output_ninja_and_namespace_map
         (fun x -> if Filename.is_relative x then Bsb_config.rev_lib_bs_prefix  x else x) 
 
   in 
-  let emit_bsc_lib_includes source_dirs = 
+  let emit_g_lib_includes source_dirs = 
     Bsb_ninja_util.output_kv
-      Bsb_build_schemas.bsc_lib_includes 
+      Bsb_build_schemas.g_lib_includes 
       (Bsb_build_util.include_dirs @@ 
        (all_includes 
           (if namespace = None then source_dirs 
@@ -237,7 +237,7 @@ let output_ninja_and_namespace_map
 
   output_reason_config ();
   Bsb_db_io.write_build_cache ~dir:cwd_lib_bs bs_groups ;
-  emit_bsc_lib_includes bsc_lib_dirs;
+  emit_g_lib_includes bsc_lib_dirs;
   Ext_list.iter static_resources (fun output -> 
       Bsb_ninja_util.output_build
         oc

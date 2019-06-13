@@ -130,9 +130,9 @@ let interpret_json
 
   : Bsb_config_types.t =
 
-  let reason_react_jsx : Bsb_config_types.reason_react_jsx option ref = ref None in 
+  let g_react : Bsb_config_types.g_react option ref = ref None in 
   let config_json = cwd // Literals.bsconfig_json in
-  let refmt_flags = ref Bsb_default.refmt_flags in
+  let g_re_flag = ref Bsb_default.g_re_flag in
   let bs_external_includes = ref [] in 
   (** we should not resolve it too early,
       since it is external configuration, no {!Bsb_build_util.convert_and_resolve_path}
@@ -277,9 +277,9 @@ let interpret_json
         | Some (Flo{loc; flo}) -> 
           begin match flo with 
             | "2" -> 
-              reason_react_jsx := Some Jsx_v2
+              g_react := Some Jsx_v2
             | "3" -> 
-              reason_react_jsx := Some Jsx_v3
+              g_react := Some Jsx_v3
             | _ -> Bsb_exception.errorf ~loc "Unsupported jsx version %s" flo
           end        
         | Some x -> Bsb_exception.config_error x 
@@ -311,13 +311,13 @@ let interpret_json
     (* More design *)
     |? (Bsb_build_schemas.bs_external_includes, `Arr (fun s -> bs_external_includes := get_list_string s))
     |? (Bsb_build_schemas.bsc_flags, `Arr (fun s -> bsc_flags := Bsb_build_util.get_list_string_acc s !bsc_flags))
-    |? (Bsb_build_schemas.ppx_flags, `Arr (fun s -> 
+    |? (Bsb_build_schemas.g_ppx_flag, `Arr (fun s -> 
         let args = get_list_string s in 
         let a,b = Ext_list.map_split_opt  args (fun p ->
             if p = "" then failwith "invalid ppx, empty string found"
             else 
               let file, checked = 
-                Bsb_build_util.resolve_bsb_magic_file ~cwd ~desc:Bsb_build_schemas.ppx_flags p 
+                Bsb_build_util.resolve_bsb_magic_file ~cwd ~desc:Bsb_build_schemas.g_ppx_flag p 
               in 
               let some_file = Some file in 
               some_file, if checked then some_file else None
@@ -340,7 +340,7 @@ let interpret_json
                   Bsb_exception.errorf ~loc {| generators exepect format like { "name" : "cppo",  "command"  : "cppo $in -o $out"} |}
                 end
               | _ -> acc ) ))
-    |? (Bsb_build_schemas.refmt_flags, `Arr (fun s -> refmt_flags := get_list_string s))
+    |? (Bsb_build_schemas.g_re_flag, `Arr (fun s -> g_re_flag := get_list_string s))
     |? (Bsb_build_schemas.entries, `Arr (fun s -> entries := parse_entries s))
     |> ignore ;
     begin match String_map.find_opt map Bsb_build_schemas.sources with 
@@ -398,7 +398,7 @@ let interpret_json
           bs_dependencies = !bs_dependencies;
           bs_dev_dependencies = !bs_dev_dependencies;
           refmt;
-          refmt_flags = !refmt_flags ;
+          g_re_flag = !g_re_flag ;
           js_post_build_cmd =  !js_post_build_cmd ;
           package_specs = 
             (match override_package_specs with 
@@ -409,7 +409,7 @@ let interpret_json
           files_to_install = String_hash_set.create 96;
           built_in_dependency = !built_in_package;
           generate_merlin = !generate_merlin ;
-          reason_react_jsx = !reason_react_jsx ;  
+          g_react = !g_react ;  
           entries = !entries;
           generators = !generators ; 
           cut_generators = !cut_generators
