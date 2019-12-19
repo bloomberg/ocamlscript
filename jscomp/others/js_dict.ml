@@ -110,3 +110,6 @@ let map f source =
     set target key (f (unsafeGet source key) [@bs])
   done;
   target
+  
+let ( .:[] ) = get
+let ( .:[]<- ) = set

@@ -148,4 +148,8 @@ val checkInvariantInternal: _ t -> unit
   2. It is not really significantly more *)
 
 
+val ( .:[] ): ('value, 'id) t -> 'value -> 'value option
+(** {b Index operator} for {!get} *)
 
+val ( .:[]<- ): ('value, 'id) t -> 'value -> unit
+(** {b Index operator} for {!add} *)

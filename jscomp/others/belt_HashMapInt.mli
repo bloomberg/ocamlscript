@@ -22,6 +22,12 @@ val set: 'a t -> key -> 'a -> unit
 val copy: 'a t -> 'a t 
 val get:  'a t -> key -> 'a option
 
+val ( .:[] ):  'a t -> key -> 'a option
+(** {b Index operator} for {!get} *)
+
+val ( .:[]<- ): 'a t -> key -> 'a -> unit
+(** {b Index operator} for {!set} *)
+
 val has:  'b  t -> key -> bool
 
 val remove: 'a t -> key -> unit

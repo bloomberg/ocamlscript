@@ -133,4 +133,8 @@ val mapWithKeyU: 'a t -> (key -> 'a -> 'b [@bs]) -> 'b t
 val mapWithKey: 'a t -> (key -> 'a -> 'b) -> 'b t    
 
 
+val ( .:[] ): 'a t ->  key -> 'a option
+(** {b Index operator} for {!get} *)
 
+val ( .:[]<- ): 'a t -> key -> 'a -> unit  
+(** {b Index operator} for {!set} *)

@@ -143,3 +143,6 @@ val checkInvariantInternal: t -> unit
 (**
    {b raise} when invariant is not held
 *)
+
+val ( .:[] ): t -> value -> value option
+(** {b Index operator} for {!get} *)

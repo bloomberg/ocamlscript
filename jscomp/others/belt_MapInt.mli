@@ -112,6 +112,12 @@ val set: 'v t -> key -> 'v -> 'v t
    [m], plus a binding of [x] to [y]. If [x] was already bound
    in [m], its previous binding disappears. *)
 
+val ( .:[] ): 'v t -> key -> 'v option
+(** {b Index operator} for {!get} *)
+
+val ( .:[]<- ): 'v t -> key -> 'v -> 'v t
+(** {b Index operator} for {!set} *)
+
 val updateU: 'v t -> key -> ('v option -> 'v option [@bs]) -> 'v t
 val update: 'v t -> key -> ('v option -> 'v option) -> 'v t
 

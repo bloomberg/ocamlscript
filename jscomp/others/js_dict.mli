@@ -32,10 +32,7 @@ type 'a t
 type key = string
 (** Key type *)
 
-val get : 
-  'a t -> 
-  key -> 
-  'a option 
+val get : 'a t -> key -> 'a option
 (** [get dict key] returns [None] if the [key] is not found in the 
     dictionary, [Some value] otherwise *)
 
@@ -81,3 +78,9 @@ val fromArray : (key * 'a) array -> 'a t
 val map : ('a -> 'b [@bs]) -> 'a t -> 'b t
 (** [map f dict] maps [dict] to a new dictionary with the same keys,
 using [f] to map each value *)
+
+val ( .:[] ) : 'a t -> key -> 'a option
+(** {b Index operator} for {!get} *)
+
+val ( .:[]<- ) : 'a t -> key -> 'a -> unit
+(** {b Index operator} for {!set} *)

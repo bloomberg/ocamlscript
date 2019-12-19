@@ -384,3 +384,5 @@ val packIdData: id:('value, 'id) id -> data:('value, 'id) Belt_SetDict.t -> ('va
     @return the packed collection
 *)
 
+val ( .:[] ): ('value, 'id) t -> 'value -> 'value option
+(** {b Index operator} for {!get} *)

@@ -96,6 +96,9 @@ val isEmpty: _ t -> bool
 
 val add: ('a, 'id) t -> 'a -> unit
 
+val ( .:[]<- ): ('a, 'id) t -> 'a -> unit
+(** {b Index operator} for {!add} *)
+
 val copy: ('a, 'id) t -> ('a, 'id) t
 
 val has: ('a, 'id) t -> 'a -> bool

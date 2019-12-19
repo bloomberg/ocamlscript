@@ -143,4 +143,8 @@ val mapWithKeyU: ('k, 'a, 'id) t -> ('k -> 'a -> 'b [@bs]) -> ('k, 'b, 'id) t
 val mapWithKey: ('k, 'a, 'id) t -> ('k -> 'a -> 'b) -> ('k, 'b, 'id) t
 
 
+val ( .:[] ): ('k, 'a, 'id) t -> 'k -> 'a option
+(** {b Index operator} for {!get} *)
 
+val ( .:[]<- ): ('k, 'a, 'id) t -> 'k -> 'a ->  unit
+(** {b Index operator} for {!set} *)

@@ -167,3 +167,6 @@ let split = I.split
 let mergeU = I.mergeU 
 let merge = I.merge 
 let fromArray = I.fromArray
+
+let ( .:[] ) = get
+let ( .:[]<- ) = set

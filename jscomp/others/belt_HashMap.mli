@@ -104,7 +104,15 @@ val set: ('key, 'value, 'id ) t -> 'key -> 'value -> unit
 val copy: ('key, 'value, 'id ) t -> ('key, 'value, 'id ) t
 
 val get: ('key, 'value, 'id ) t -> 'key -> 'value option
+(** [get tbl k] returns [None] if the [k] is not found in table [tbl],
+    [Some v] otherwise 
+*)
 
+val ( .:[] ): ('key, 'value, 'id ) t -> 'key -> 'value option
+(** {b Index operator} for {!get} *)
+
+val ( .:[]<- ): ('key, 'value, 'id ) t -> 'key -> 'value -> unit
+(** {b Index operator} for {!set} *)
 
 val has: ('key, 'value, 'id ) t -> 'key -> bool
 (** [has tbl x] checks if [x] is bound in [tbl]. *)

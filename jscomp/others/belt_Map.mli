@@ -276,7 +276,7 @@ val maxUndefined:('k, 'v, _) t -> ('k * 'v) Js.undefined
 *)
 
 val get:  ('k, 'v, 'id) t -> 'k -> 'v option
-(** [get s k]
+(** [get m k]
 
     @example {[
       get (fromArray [2,"2"; 1,"1"; 3,"3"] ~id:(module IntCmp)) 2 =
@@ -285,6 +285,12 @@ val get:  ('k, 'v, 'id) t -> 'k -> 'v option
       None;;
     ]}
 *)
+
+val ( .:[] ): ('k, 'v, 'id) t -> 'k -> 'v option
+(** {b Index operator} for {!get} *)
+
+val ( .:[]<- ): ('k, 'v, 'id) t -> 'k -> 'v ->  ('k, 'v, 'id) t
+(** {b Index operator} for {!set} *)
 
 val getUndefined: ('k, 'v, 'id) t -> 'k ->  'v Js.undefined
 (** {b See} {!get}

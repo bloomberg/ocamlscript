@@ -130,6 +130,9 @@ let maxUndefined m = Dict.maxUndefined (dataGet m)
 let get map x  =
   Dict.get ~cmp:(cmpGet map)  (dataGet map) x
 
+let ( .:[] ) = get
+let ( .:[]<- ) = set
+
 let getUndefined map x =
   Dict.getUndefined ~cmp:(cmpGet map) (dataGet map) x
 

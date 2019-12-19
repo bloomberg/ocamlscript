@@ -616,3 +616,9 @@ external truncateToLengthUnsafe: 'a array -> int ->  unit = "length" [@@bs.set]
   ]}
 
 *)
+
+val ( .:[] ): 'a array -> int -> 'a option
+(** {b Index operator} for {!get} *)
+
+val ( .:[]<- ): 'a array -> int -> 'a -> bool
+(** {b Index operator} for {!set} *)
