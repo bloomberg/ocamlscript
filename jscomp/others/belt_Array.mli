@@ -357,6 +357,29 @@ val forEach: 'a array ->  ('a -> unit ) -> unit
     ]}
 *)
 
+val forEachReverseU: 'a array ->  ('a -> unit [@bs]) -> unit
+val forEachReverse: 'a array ->  ('a -> unit ) -> unit
+(** [forEachReverse xs f]
+
+    Call [f] on each element of [xs] from the end to the beginning. [f] returns [unit];so no
+    new array is created. Use [forEachReverse] when you are primarily concerned with repetitively
+    creating side effects.
+
+    @example {[
+      forEachReverse [|"a";"b";"c"|] (fun x -> Js.log("Item: " ^ x));;
+      (*  prints:
+        Item: c
+        Item: b
+        Item: a
+      *)
+
+      let total = ref 0;;
+      forEach [|1;2;3;4|] (fun x -> total := !total + x);;
+      !total  = 4 + 3 + 2 + 1 + 0;;
+
+    ]}
+*)
+
 val mapU: 'a array ->  ('a -> 'b [@bs]) -> 'b array
 val map: 'a array ->  ('a -> 'b ) -> 'b array
 (** [map xs f ]
@@ -365,7 +388,20 @@ val map: 'a array ->  ('a -> 'b ) -> 'b array
     the beginning to end
 
     @example {[
-     map [|1;2|] (fun x-> x + 1) = [|3;4|]
+     map [|1;2|] (fun x-> x + 10) = [|11;12|]
+   ]}
+
+*)
+
+val mapReverseU: 'a array ->  ('a -> 'b [@bs]) -> 'b array
+val mapReverse: 'a array ->  ('a -> 'b ) -> 'b array
+(** [mapReverse xs f ]
+
+    @return a new array by calling [f] for each element of [xs] from
+    the end to the beginning
+
+    @example {[
+     mapReverse [|1;2|] (fun x-> x + 10) = [|12;11|]
    ]}
 
 *)
@@ -393,31 +429,68 @@ val getIndexBy: 'a array -> ('a -> bool) -> int option
 val keepU: 'a array -> ('a -> bool [@bs]) -> 'a array
 val keep: 'a array -> ('a -> bool ) -> 'a array
 (** [keep xs p ]
-    @return a new array that keep all elements satisfy [p]
+    @return a new array that keeps all elements satisfying [p]
 
     @example {[
       keep [|1;2;3|] (fun x -> x mod  2 = 0) = [|2|]
     ]}
 *)
 
+val keepReverseU: 'a array -> ('a -> bool [@bs]) -> 'a array
+val keepReverse: 'a array -> ('a -> bool ) -> 'a array
+(** [keepReverse xs p ]
+    @return a new array that keeps all elements satisfying [p] from the 
+    last to the first element of [xs]. 
+
+    @example {[
+      keepReverse [|1;2;3|] (fun x -> x mod  2 = 1) = [|3;1|]
+    ]}
+*)
+
 val keepWithIndexU: 'a array -> ('a -> int -> bool [@bs]) -> 'a array
 val keepWithIndex: 'a array -> ('a -> int -> bool ) -> 'a array
 (** [keepWithIndex xs p ]
-    @return a new array that keep all elements satisfy [p]
+    @return a new array that keeps all elements satisfying [p]. 
+    The predicate [p] takes two arguments:
+    the element from [xs] and the index starting from 0.
 
     @example {[
       keepWithIndex [|1;2;3|] (fun _x i -> i = 1) = [|2|]
     ]}
 *)
 
+val keepReverseWithIndexU: 'a array -> ('a -> int -> bool [@bs]) -> 'a array
+val keepReverseWithIndex: 'a array -> ('a -> int -> bool ) -> 'a array
+(** [keepReverseWithIndex xs p ]
+    @return a new array that keeps all elements satisfying [p] from the 
+    last to the first element of [xs]. The predicate [p] takes two arguments:
+    the element from [xs] and the index starting from [length - 1] down to 0.
+
+    @example {[
+      keepReverseWithIndex [|1;2;3|] (fun _x i -> i mod 2 = 1) = [|3;1|]
+    ]}
+*)
+
 val keepMapU: 'a array -> ('a -> 'b option [@bs]) -> 'b array
 val keepMap: 'a array -> ('a -> 'b option) -> 'b array
 (** [keepMap xs p]
-    @return a new array that keep all elements that return a non-None applied [p]
+    @return a new array that keeps all elements that return a non-None when applied to [p]
 
     @example {[
-      keepMap [|1;2;3|] (fun x -> if x mod 2 then Some x else None)
+      keepMap [|1;2;3|] (fun x -> if x mod 2 = 0 then Some x else None)
       = [| 2 |]
+    ]}
+*)
+
+val keepMapReverseU: 'a array -> ('a -> 'b option [@bs]) -> 'b array
+val keepMapReverse: 'a array -> ('a -> 'b option) -> 'b array
+(** [keepMapReverse xs p]
+    @return a new array that keeps all elements that return a non-None when 
+    applied to [p] from the last to the first element of [xs]
+
+    @example {[
+      keepMapReverse [|1;2;3|] (fun x -> if x mod 2 = 1 then Some x else None)
+      = [|3; 1|]
     ]}
 *)
 
@@ -425,16 +498,16 @@ val forEachWithIndexU: 'a array ->  (int -> 'a -> unit [@bs]) -> unit
 val forEachWithIndex: 'a array ->  (int -> 'a -> unit ) -> unit
 (** [forEachWithIndex xs f]
 
-    The same as {!forEach};except that [f] is supplied two arguments:
+    The same as {!forEach}; except that [f] is supplied with two arguments:
     the index starting from 0 and the element from [xs]
 
     @example {[
 
-      forEach [|"a";"b";"c"|] (fun i x -> Js.log("Item " ^ (string_of_int i) ^ " is " ^ x));;
+      forEachWithIndex [|"a";"b";"c"|] (fun i x -> Js.log("Item " ^ (string_of_int i) ^ " is " ^ x));;
       (*  prints:
         Item 0 is a
         Item 1 is b
-        Item 2 is cc
+        Item 2 is c
       *)
 
       let total = ref 0 ;;
@@ -443,6 +516,30 @@ val forEachWithIndex: 'a array ->  (int -> 'a -> unit ) -> unit
     ]}
 
 *)
+
+val forEachReverseWithIndexU: 'a array ->  (int -> 'a -> unit [@bs]) -> unit
+val forEachReverseWithIndex: 'a array ->  (int -> 'a -> unit ) -> unit
+(** [forEachReverseWithIndex xs f]
+
+    The same as {!forEachReverse}; except that [f] is supplied with two arguments:
+    the index from [length xs - 1] down to 0 and the element from [xs]
+
+    @example {[
+
+      forEachReverseWithIndex [|"a";"b";"c"|] (fun i x -> Js.log("Item " ^ (string_of_int i) ^ " is " ^ x));;
+      (*  prints:
+        Item 2 is c
+        Item 1 is b
+        Item 0 is a
+      *)
+
+      let total = ref 0 ;;
+      forEachReverseWithIndex [|10;11;12;13|] (fun i x -> total := !total + x + i);;
+      !total  = 3 + 13 + 2 + 12 + 1 + 11 + 0 + 10;;
+    ]}
+
+*)
+
 
 val mapWithIndexU: 'a array ->  (int -> 'a -> 'b [@bs]) -> 'b array
 val mapWithIndex: 'a array ->  (int -> 'a -> 'b ) -> 'b array
@@ -454,6 +551,20 @@ val mapWithIndex: 'a array ->  (int -> 'a -> 'b ) -> 'b array
     @example {[
       mapWithIndex [|1;2;3|] (fun i x -> i + x) =
       [|0 + 1; 1 + 2; 2 + 3|]
+    ]}
+*)
+
+val mapReverseWithIndexU: 'a array ->  (int -> 'a -> 'b [@bs]) -> 'b array
+val mapReverseWithIndex: 'a array ->  (int -> 'a -> 'b ) -> 'b array
+(** [mapReverseWithIndex xs f ]
+
+    [mapReverseWithIndex xs f] applies [f] to each element of [xs] 
+    from the last to the first. Function [f] takes two arguments:
+    the index starting from [length - 1] down to 0 and the element from [xs].
+
+    @example {[
+      mapReverseWithIndex [|1;2;3|] (fun i x -> i + x) =
+      [|2 + 3; 1 + 2 ; 0 + 1|]
     ]}
 *)
 
@@ -519,6 +630,24 @@ val reduceWithIndex:  'a array -> 'b -> ('b -> 'a -> int -> 'b) -> 'b
     
     @example {[
       reduceWithIndex [|1;2;3;4|] 0 (fun acc x i -> acc + x + i) = 16;
+    ]}
+*)
+
+val joinWithU: 'a array -> string -> ('a -> string [@bs]) -> string
+val joinWith: 'a array -> string -> ('a -> string) -> string
+(** [joinWith xs sep toString]
+    
+    Concatenates all the elements of [xs] converted to string with [toString], each separated by [sep], the string 
+    given as the second argument, into a single string.
+    If the array has only one element, then that element will be returned 
+    without using the separator.
+    If the array is empty, the empty string will be returned.
+
+    @example{[
+      joinWith [|0; 1|] ", " string_of_int = "0, 1"
+      joinWith [||] " " string_of_int = ""
+      joinWith [|1|] " " string_of_int = "1"
+
     ]}
 *)
 
