@@ -24,7 +24,7 @@
 
 
 (*
-   perf is not everything, there are better memory represenations
+   perf is not everything, there are better memory representations
    {[
      type 'a cell = {
        mutable head : 'a;
@@ -767,8 +767,16 @@ let rec keepMapU xs p  =
 
 let keepMap xs p = keepMapU xs (fun [@bs] x -> p x)
 
+let intersectBy eq xs ys =
+  match (xs, ys) with
+  | ([],_)
+  | (_,[]) -> []
+  | (xs,ys) -> keep xs (fun x -> some ys (eq x))
+
+let intersect xs ys = intersectBy (=) xs ys
+
 let partitionU l p  =
-  match l with
+  match l with 
   | [] -> [],[]
   | h::t ->
     let nextX = mutableCell h [] in
