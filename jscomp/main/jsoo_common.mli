@@ -32,6 +32,7 @@ module Js :
 
     type 'a js_array
     external array : 'a array -> 'a js_array = "caml_js_from_array"
+    external to_array : 'a js_array t -> 'a array = "caml_js_to_array"
 
     external bool : bool -> bool t = "caml_js_from_bool"
     external to_bool : bool t -> bool = "caml_js_to_bool"
@@ -44,6 +45,11 @@ module Js :
       = "caml_create_file"
     external to_bytestring : js_string t -> string = "caml_js_to_byte_string"
 
+    type 'a opt = 'a
+    type 'a optdef = 'a
+    val null : 'a opt
+    val some : 'a -> 'a opt
+    (** Consider a value into a possibly null value. *)
   end
 
 module Sys_js :

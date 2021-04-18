@@ -14,6 +14,7 @@ module Js = struct
     type obj
     external obj : (string * any) array -> obj = "caml_js_object"
   end
+
   type (-'a, +'b) meth_callback
   type 'a callback = (unit, 'a) meth_callback
 
@@ -28,6 +29,7 @@ module Js = struct
 
   type 'a js_array
   external array : 'a array -> 'a js_array = "caml_js_from_array"
+  external to_array : 'a js_array t -> 'a array = "caml_js_to_array"
 
   external bool : bool -> bool t = "caml_js_from_bool"
   external to_bool : bool t -> bool = "caml_js_to_bool"
@@ -38,6 +40,12 @@ module Js = struct
 
   external create_file : js_string t -> js_string t -> unit = "caml_create_file"
   external to_bytestring : js_string t -> string = "caml_js_to_byte_string"
+
+  type 'a opt = 'a
+  type 'a optdef = 'a
+
+  let null : 'a opt = Unsafe.pure_js_expr "null"
+  external some : 'a -> 'a opt = "%identity"
 end
 
 module Sys_js = struct
