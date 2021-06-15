@@ -119,6 +119,7 @@ function main(argv, rescript_exe, bsc_exe) {
         (async function () {
           var content = await readStdin();
           var fd = fs.openSync(filename, 'wx', 0o600);
+          process.addListener('exit', () => fs.unlinkSync(filename));
           fs.writeFileSync(fd, content, "utf8");
           fs.closeSync(fd);
 
