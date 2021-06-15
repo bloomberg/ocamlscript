@@ -112,9 +112,10 @@ function main(argv, rescript_exe, bsc_exe) {
       if (isSupportedStd(use_stdin)) {
         var crypto = require("crypto");
         var os = require("os");
+        var extension = formattedStdExtensions.includes(use_stdin) ? use_stdin : path.extname(use_stdin)
         var filename = path.join(
           os.tmpdir(),
-          "rescript_" + crypto.randomBytes(8).toString("hex") + use_stdin
+          "rescript_" + crypto.randomBytes(8).toString("hex") + extension
         );
         (async function () {
           var content = await readStdin();
