@@ -111,13 +111,12 @@ function main(argv, rescript_exe, bsc_exe) {
         process.exit(2);
       }
     } else if (use_stdin) {
-      if (isSupportedStd(use_stdin)) {
+      if (formattedStdExtensions.includes(use_stdin)) {
         var crypto = require("crypto");
         var os = require("os");
-        var extension = formattedStdExtensions.includes(use_stdin) ? use_stdin : path.extname(use_stdin)
         var filename = path.join(
           os.tmpdir(),
-          "rescript_" + crypto.randomBytes(8).toString("hex") + extension
+          "rescript_" + crypto.randomBytes(8).toString("hex") + use_stdin
         );
         (async function () {
           var content = await readStdin();
@@ -140,8 +139,8 @@ function main(argv, rescript_exe, bsc_exe) {
           );
         })();
       } else {
-        console.error(`Unsupported exetnsion ${use_stdin}`);
-        console.error(`Supported extensions: ${formattedStdExtensions} `);
+        console.error(`Unsupported extension ${use_stdin}`);
+        console.error(`Supported extensions: ${formattedStdExtensions}`);
         process.exit(2);
       }
     } else {
